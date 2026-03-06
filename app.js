@@ -18,6 +18,7 @@ const SQL = await initSqlJs({
 let db = "";
 const select = document.querySelector("#tabSelect");
 const verifCard = document.querySelector("#verify");
+
 //crypto verif
 
 //convert string to binary
@@ -109,8 +110,6 @@ function getTablesList() {
       )[0]
       ?.values.map((row) => row[0]) || [];
 
-  console.log(tableList);
-
   return tableList;
 }
 
@@ -153,7 +152,8 @@ function displayContent(tableName) {
   }
 
   const title = document.createElement("h4");
-  title.className = "mb-3";
+  title.className =
+    "mb-3 p-2 bg-secondary-subtle text-secondary-emphasis text-center rounded";
   title.textContent = tableName.toUpperCase();
   article.appendChild(title);
 
@@ -233,6 +233,30 @@ async function displayVerif(file) {
   return vSig;
 }
 
+//9 Create a view and export it as a csv file
+function exportViewAsCSV(view) {
+  const columns = view[0].columns;
+  const rows = view[0].values;
+
+  let csvContent =
+    "data:text/csv;charset=utf-8," +
+    columns.join(",") +
+    "\n" +
+    rows.map((e) => e.join(",")).join("\n");
+
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "view_export.csv");
+
+  document.body.appendChild(link);
+  link.onclick = () => {
+    return confirm("Télécharger la vue en CSV ?");
+  };
+  link.click();
+  document.body.removeChild(link);
+}
+
 // 7 Manages events on the select input used to choose the displayed table
 document
   .querySelector("#zipFileInput")
@@ -244,6 +268,13 @@ document
       const sqliteFile = (await getFile(file)).dbFile;
 
       await loadDB(sqliteFile);
+      const view = await db.exec(
+        `SELECT facture.id, total_ttc, libelle, quantite, total_ht 
+        FROM facture 
+        INNER JOIN facture_articles 
+        ON facture.id = facture_articles.parent`,
+      );
+      exportViewAsCSV(view);
 
       const tables = getTablesList();
       displayTables(tables);
