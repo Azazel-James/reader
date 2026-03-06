@@ -1,17 +1,5 @@
 import "zip.js";
 
-/*
-Etape à réaliser pour vendredi: 
-
-1. Extract zip
-2. Load db
-3. Get tables
-4. Get tables content ?
-5. Display tables
-6. Display content ?
-7. Manage functions in eventListener
-*/
-
 const SQL = await initSqlJs({
   locateFile: (file) => `https://sql.js.org/dist/${file}`,
 });
@@ -19,9 +7,9 @@ let db = "";
 const select = document.querySelector("#tabSelect");
 const verifCard = document.querySelector("#verify");
 
-//crypto verif
+//crypto verif functions
 
-//convert string to binary
+//convert string to ArrayBuffer
 function str2ab(str) {
   const buf = new ArrayBuffer(str.length);
   const bufView = new Uint8Array(buf);
@@ -31,7 +19,7 @@ function str2ab(str) {
   return buf;
 }
 
-//import an existing key
+//import an existing public key (Ed25519) in PEM format to verify the signature
 function importRsaKey(pem) {
   // fetch the part of the PEM string between header and footer
   const pemHeader = "-----BEGIN PUBLIC KEY-----";
@@ -73,7 +61,7 @@ async function verifySig(pem, signature, encodedData) {
   return verifyResult;
 }
 
-//page rendering
+//page rendering functions
 
 // 1 Extract the .sqlite, .sqlite.sig, .pem files from the archive return a blob files
 async function getFile(zipF) {
@@ -125,7 +113,7 @@ function getTableData(tableName, limit = 50) {
   };
 }
 
-// 5 Renders a table with the data from one db table
+// 5 Renders a table with the data from a selected db table
 function displayTables(tables) {
   tables.forEach((table) => {
     const option = document.createElement("option");
@@ -143,7 +131,7 @@ function displayTables(tables) {
   });
 }
 
-// 6 Renders the data to add to the table
+// 6 Renders the data to add to the HTML table
 function displayContent(tableName) {
   const article = document.querySelector("#tabStructure");
 
@@ -233,7 +221,7 @@ async function displayVerif(file) {
   return vSig;
 }
 
-//9 Create a view and export it as a csv file
+//9 Get a saved query result (view param) and export it as a csv file
 function exportViewAsCSV(view) {
   const columns = view[0].columns;
   const rows = view[0].values;
@@ -257,7 +245,11 @@ function exportViewAsCSV(view) {
   document.body.removeChild(link);
 }
 
-// 7 Manages events on the select input used to choose the displayed table
+// 10 API call to remote SAS to get original signatures file to compare it to the signatures stored in the db facture table
+
+// 11 Renders the result of the comparison in a new card on the HTML page
+
+// 7 Manages actions triggered by event on the select input used to choose the displayed table
 document
   .querySelector("#zipFileInput")
   .addEventListener("change", async (e) => {
