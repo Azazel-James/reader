@@ -12,16 +12,12 @@ Etape à réaliser pour vendredi:
 7. Manage functions in eventListener
 */
 
-const pemEncodedKey = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAiGWKIYc4VYnreGw+PycFmJFTa2xhyh1GcdwqbTU3l2A=
------END PUBLIC KEY-----`;
-
 const SQL = await initSqlJs({
   locateFile: (file) => `https://sql.js.org/dist/${file}`,
 });
 let db = "";
 const select = document.querySelector("#tabSelect");
-
+const verifCard = document.querySelector("#verify");
 //crypto verif
 
 //convert string to binary
@@ -57,10 +53,12 @@ function importRsaKey(pem) {
   );
 }
 
+let publicKey;
 //Verify the document signature and return true or false
-async function verifySig(signature, encodedData) {
-  const publicKey = await importRsaKey(pemEncodedKey);
-
+async function verifySig(pem, signature, encodedData) {
+  if (!publicKey) {
+    publicKey = await importRsaKey(pem);
+  }
   // Verify the signature using the public key
   const verifyResult = await window.crypto.subtle.verify(
     {
@@ -74,48 +72,26 @@ async function verifySig(signature, encodedData) {
   return verifyResult;
 }
 
-//get the sqlite.sig file and convert to an ArrayBuffer
-async function getSignature(zipF) {
-  const reader = new zip.ZipReader(new zip.BlobReader(zipF));
-  const entries = await reader.getEntries();
-
-  for (const entry of entries) {
-    if (entry.filename.endsWith(".sqlite.sig")) {
-      let signature = await entry.getData(new zip.BlobWriter());
-      signature = signature.arrayBuffer();
-      await reader.close();
-      return signature;
-    }
-  }
-
-  await reader.close();
-  throw new Error("Aucun fichier correspondant.");
-}
-
-//convert the sqlite file to an ArrayBuffer
-async function convertToArrayBuffer(file) {
-  const buffer = await file.arrayBuffer();
-
-  return buffer;
-}
-
 //page rendering
 
-// 1 Extract the .sqlite file from the archive return a blob file
+// 1 Extract the .sqlite, .sqlite.sig, .pem files from the archive return a blob files
 async function getFile(zipF) {
   const reader = new zip.ZipReader(new zip.BlobReader(zipF));
   const entries = await reader.getEntries();
 
+  let dbFile, sigFile, keyFile;
+
   for (const entry of entries) {
     if (entry.filename.endsWith(".sqlite")) {
-      const sqliteFile = await entry.getData(new zip.BlobWriter());
-      await reader.close();
-      return sqliteFile;
+      dbFile = await entry.getData(new zip.BlobWriter());
+    } else if (entry.filename.endsWith(".sqlite.sig")) {
+      sigFile = await entry.getData(new zip.BlobWriter());
+    } else if (entry.filename.endsWith(".pem")) {
+      keyFile = await entry.getData(new zip.BlobWriter());
     }
   }
-
   await reader.close();
-  throw new Error("Aucun fichier sqlite trouvé.");
+  return { dbFile, sigFile, keyFile };
 }
 
 // 2 Load the database from the sqlite file
@@ -178,7 +154,7 @@ function displayContent(tableName) {
 
   const title = document.createElement("h4");
   title.className = "mb-3";
-  title.textContent = tableName;
+  title.textContent = tableName.toUpperCase();
   article.appendChild(title);
 
   const dataTitle = document.createElement("h6");
@@ -237,12 +213,24 @@ function displayContent(tableName) {
 }
 
 // 8 Renders a card showing the verify() output of the file
-function displayVerif(vSig) {
+async function displayVerif(file) {
+  const { dbFile, sigFile, keyFile } = await getFile(file);
+  const encodedData = await dbFile.arrayBuffer();
+  const signature = await sigFile.arrayBuffer();
+  const pem = await keyFile.text();
+
+  const vSig = await verifySig(pem, signature, encodedData);
+
   if (vSig) {
-    //green check
+    verifCard.className = "card bg-success-subtle text-success-emphasis mt-3";
+    verifCard.querySelector(".card-body").textContent =
+      "Signature vérifiée : le fichier n'a pas été modifié depuis sa signature.";
   } else {
-    //red X
+    verifCard.className = "card bg-danger-subtle text-danger-emphasis mt-3";
+    verifCard.querySelector(".card-body").textContent =
+      "Signature non vérifiée : le fichier a été modifié depuis sa signature.";
   }
+  return vSig;
 }
 
 // 7 Manages events on the select input used to choose the displayed table
@@ -252,13 +240,12 @@ document
     const file = e.target.files[0];
     if (!file) return;
 
-    const sqliteFile = await getFile(file);
-    const signature = await getSignature(file);
-    const encodedData = await convertToArrayBuffer(sqliteFile);
-    const vSig = await verifySig(signature, encodedData);
+    if (displayVerif(file)) {
+      const sqliteFile = (await getFile(file)).dbFile;
 
-    await loadDB(sqliteFile);
+      await loadDB(sqliteFile);
 
-    const tables = getTablesList();
-    displayTables(tables);
+      const tables = getTablesList();
+      displayTables(tables);
+    }
   });
