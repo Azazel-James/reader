@@ -63,24 +63,54 @@ async function verifySig(pem, signature, encodedData) {
 
 //page rendering functions
 
-// 1 Extract the .sqlite, .sqlite.sig, .pem files from the archive return a blob files
-async function getFile(zipF) {
-  const reader = new zip.ZipReader(new zip.BlobReader(zipF));
+// 1 Extract the .sqlite, .sqlite.sig, .pem files from the archive returns blob files
+// async function getFile(zipF) {
+//   const reader = new zip.ZipReader(new zip.BlobReader(zipF));
+//   const entries = await reader.getEntries();
+
+//   let dbFile, sigFile, keyFile;
+
+//   for (const entry of entries) {
+//     if (entry.filename.endsWith(".sqlite")) {
+//       dbFile = await entry.getData(new zip.BlobWriter());
+//     } else if (entry.filename.endsWith(".sqlite.sig")) {
+//       sigFile = await entry.getData(new zip.BlobWriter());
+//     } else if (entry.filename.endsWith(".pem")) {
+//       keyFile = await entry.getData(new zip.BlobWriter());
+//     }
+//   }
+//   await reader.close();
+//   return { dbFile, sigFile, keyFile };
+// }
+
+// 1' Extract each file and pairs signature files with their corresponding document, returns an array of objects {doc, name, sig}
+async function pairingSig(zipFile) {
+  const reader = new zip.ZipReader(new zip.BlobReader(zipFile));
   const entries = await reader.getEntries();
 
-  let dbFile, sigFile, keyFile;
+  let sigPairs = [];
 
   for (const entry of entries) {
-    if (entry.filename.endsWith(".sqlite")) {
-      dbFile = await entry.getData(new zip.BlobWriter());
-    } else if (entry.filename.endsWith(".sqlite.sig")) {
-      sigFile = await entry.getData(new zip.BlobWriter());
-    } else if (entry.filename.endsWith(".pem")) {
-      keyFile = await entry.getData(new zip.BlobWriter());
+    if (!entry.filename.endsWith(".sig")) {
+      sigPairs.push({ doc: await entry.getData(new zip.BlobWriter()) });
+      sigPairs[sigPairs.length - 1].name = entry.filename;
+      for (const entry2 of entries) {
+        if (
+          entry2.filename.endsWith(".sig") &&
+          entry2.filename.replace(".sig", "") === entry.filename
+        ) {
+          sigPairs[sigPairs.length - 1].sig = await entry2.getData(
+            new zip.BlobWriter(),
+          );
+        }
+      }
     }
   }
+
+  console.log(sigPairs);
+
   await reader.close();
-  return { dbFile, sigFile, keyFile };
+  return sigPairs;
 }
 
 // 2 Load the database from the sqlite file
@@ -102,7 +132,7 @@ function getTablesList() {
 }
 
 // 4 Get the data inside one table
-function getTableData(tableName, limit = 50) {
+function getTableData(tableName, limit = 500) {
   const data = db.exec(`SELECT * FROM "${tableName}" LIMIT ${limit};`);
 
   if (!data.length) return { columns: [], rows: [] };
@@ -146,7 +176,7 @@ function displayContent(tableName) {
   article.appendChild(title);
 
   const dataTitle = document.createElement("h6");
-  dataTitle.textContent = "Données (max 50 lignes)";
+  dataTitle.textContent = "Données (max 500 lignes)";
   dataTitle.className = "mt-4";
   article.appendChild(dataTitle);
 
@@ -171,8 +201,6 @@ function displayContent(tableName) {
   thead.className = "table-dark";
 
   const hRow = document.createElement("tr");
-
-  console.log(columns);
 
   columns.forEach((colName) => {
     const th = document.createElement("th");
@@ -200,25 +228,69 @@ function displayContent(tableName) {
   article.appendChild(dataWrapper);
 }
 
+// 13 Pagination displayed table 500 lines per page
+function paginateTable(tableName, page = 1, pageSize = 500) {
+  const offset = (page - 1) * pageSize;
+  const data = db.exec(
+    `SELECT * FROM "${tableName}" LIMIT ${pageSize} OFFSET ${offset};`,
+  );
+  const totalLines =
+    db.exec(`SELECT * FROM "${tableName}";`)[0]?.values.length || 0;
+  const totalPages = Math.ceil(totalLines / pageSize);
+
+  // code to render pagination controls and handle page changes
+}
 // 8 Renders a card showing the verify() output of the file
-async function displayVerif(file) {
-  const { dbFile, sigFile, keyFile } = await getFile(file);
-  const encodedData = await dbFile.arrayBuffer();
-  const signature = await sigFile.arrayBuffer();
-  const pem = await keyFile.text();
+// async function displayVerif(file) {
+//   const { dbFile, sigFile, keyFile } = await getFile(file);
+//   const encodedData = await dbFile.arrayBuffer();
+//   const signature = await sigFile.arrayBuffer();
+//   const pem = await keyFile.text();
 
-  const vSig = await verifySig(pem, signature, encodedData);
+//   const vSig = await verifySig(pem, signature, encodedData);
 
-  if (vSig) {
-    verifCard.className = "card bg-success-subtle text-success-emphasis mt-3";
-    verifCard.querySelector(".card-body").textContent =
-      "Signature vérifiée : le fichier n'a pas été modifié depuis sa signature.";
-  } else {
-    verifCard.className = "card bg-danger-subtle text-danger-emphasis mt-3";
-    verifCard.querySelector(".card-body").textContent =
-      "Signature non vérifiée : le fichier a été modifié depuis sa signature.";
+//   if (vSig) {
+//     verifCard.className = "card bg-success-subtle text-success-emphasis mt-3";
+//     verifCard.querySelector(".card-body").textContent =
+//       "Signature vérifiée : le fichier n'a pas été modifié depuis sa signature.";
+//   } else {
+//     verifCard.className = "card bg-danger-subtle text-danger-emphasis mt-3";
+//     verifCard.querySelector(".card-body").textContent =
+//       "Signature non vérifiée : le fichier a été modifié depuis sa signature.";
+//   }
+//   return vSig;
+// }
+
+// 8' Same as 8 but works with the sigPairs array
+async function displayVerifArray(file) {
+  const sigPairs = await pairingSig(file);
+  let pem;
+  let v = { count: 0 };
+  let f = { count: 0, filenames: [] };
+
+  for (const pair of sigPairs) {
+    if (pair.name.endsWith(".pem")) {
+      pem = await pair.doc.text();
+    }
   }
-  return vSig;
+
+  sigPairs.forEach(async (pair) => {
+    if (pair.sig) {
+      const signature = await pair.sig.arrayBuffer();
+      const encodedData = await pair.doc.arrayBuffer();
+      const vSig = await verifySig(pem, signature, encodedData);
+
+      if (vSig) {
+        v.count++;
+      } else {
+        f.count++;
+        f.filenames.push(pair.name);
+      }
+    }
+    verifCard.className = "card mt-3 bg-info-subtle text-info-emphasis";
+    verifCard.querySelector(".card-body").textContent =
+      `${f.count} fichier(s) KO : ${f.filenames.join(", ")} .`;
+  });
 }
 
 //9 Get a saved query result (view param) and export it as a csv file
@@ -245,10 +317,37 @@ function exportViewAsCSV(view) {
   document.body.removeChild(link);
 }
 
-// 10 API call to remote SAS to get original signatures file to compare it to the signatures stored in the db facture table
-
+// 10 Call to remote SAS to get original signatures file to compare it to the signatures stored in the db facture table
+async function saslogVerify() {
+  // code here
+}
 // 11 Renders the result of the comparison in a new card on the HTML page
 
+// 12 Export each table from the db as a csv file
+async function exportAllTablesAsCSV() {
+  const tables = getTablesList();
+
+  tables.forEach((table) => {
+    const { columns, rows } = getTableData(table);
+    let csvContent =
+      "data:text/csv;charset=utf-8," +
+      columns.join(",") +
+      "\n" +
+      rows.map((e) => e.join(",")).join("\n");
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${table}_export.csv`);
+
+    document.body.appendChild(link);
+    link.onclick = () => {
+      return confirm(`Télécharger la table ${table} en CSV ?`);
+    };
+    link.click();
+    document.body.removeChild(link);
+  });
+}
 // 7 Manages actions triggered by event on the select input used to choose the displayed table
 document
   .querySelector("#zipFileInput")
@@ -256,16 +355,23 @@ document
     const file = e.target.files[0];
     if (!file) return;
 
-    if (displayVerif(file)) {
-      const sqliteFile = (await getFile(file)).dbFile;
+    const sigPairs = await pairingSig(file);
+
+    if (displayVerifArray(file)) {
+      const sqliteFile = sigPairs.find((pair) =>
+        pair.name.endsWith(".sqlite"),
+      ).doc;
 
       await loadDB(sqliteFile);
-      const view = await db.exec(
-        `SELECT facture.id, total_ttc, libelle, quantite, total_ht 
+
+      //add montant and inner join on facture_reglements once table is not empty
+      const view = db.exec(
+        `SELECT facture.id, total_ttc, libelle, quantite, total_ht
         FROM facture 
         INNER JOIN facture_articles 
-        ON facture.id = facture_articles.parent`,
+        ON facture.id = facture_articles.parent;`,
       );
+
       exportViewAsCSV(view);
 
       const tables = getTablesList();
