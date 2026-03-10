@@ -6,6 +6,7 @@ const SQL = await initSqlJs({
 let db = "";
 const select = document.querySelector("#tabSelect");
 const verifCard = document.querySelector("#verify");
+const paginationUl = document.querySelector(".pagination");
 
 //crypto verif functions
 
@@ -107,8 +108,6 @@ async function pairingSig(zipFile) {
     }
   }
 
-  console.log(sigPairs);
-
   await reader.close();
   return sigPairs;
 }
@@ -132,8 +131,8 @@ function getTablesList() {
 }
 
 // 4 Get the data inside one table
-function getTableData(tableName, limit = 500) {
-  const data = db.exec(`SELECT * FROM "${tableName}" LIMIT ${limit};`);
+function getTableData(tableName) {
+  const data = db.exec(`SELECT * FROM "${tableName}";`);
 
   if (!data.length) return { columns: [], rows: [] };
 
@@ -154,16 +153,23 @@ function displayTables(tables) {
       const tableName = e.target.value;
       if (!tableName) return;
 
-      displayContent(tableName);
+      paginateTable(tableName);
     });
 
     select.appendChild(option);
   });
 }
-
-// 6 Renders the data to add to the HTML table
-function displayContent(tableName) {
+// 13 Pagination displayed table 500 lines per page
+function paginateTable(tableName, page = 1, pageSize = 500) {
   const article = document.querySelector("#tabStructure");
+
+  const offset = (page - 1) * pageSize;
+  const data = db.exec(
+    `SELECT * FROM "${tableName}" LIMIT ${pageSize} OFFSET ${offset};`,
+  );
+  const totalLines =
+    db.exec(`SELECT * FROM "${tableName}";`)[0]?.values.length || 0;
+  const totalPages = Math.ceil(totalLines / pageSize);
 
   while (article.firstChild) {
     article.removeChild(article.firstChild);
@@ -180,9 +186,7 @@ function displayContent(tableName) {
   dataTitle.className = "mt-4";
   article.appendChild(dataTitle);
 
-  const { columns, rows } = getTableData(tableName);
-
-  if (!rows.length) {
+  if (totalLines === 0) {
     const alert = document.createElement("div");
     alert.className = "alert alert-secondary";
     alert.textContent = "Aucune donnée.";
@@ -202,7 +206,7 @@ function displayContent(tableName) {
 
   const hRow = document.createElement("tr");
 
-  columns.forEach((colName) => {
+  data[0].columns.forEach((colName) => {
     const th = document.createElement("th");
     th.textContent = colName;
     hRow.appendChild(th);
@@ -213,7 +217,7 @@ function displayContent(tableName) {
 
   const tbody = document.createElement("tbody");
 
-  rows.forEach((rowData) => {
+  data[0].values.forEach((rowData) => {
     const row = document.createElement("tr");
     rowData.forEach((cell) => {
       const td = document.createElement("td");
@@ -226,19 +230,28 @@ function displayContent(tableName) {
   dataTable.appendChild(tbody);
   dataWrapper.appendChild(dataTable);
   article.appendChild(dataWrapper);
-}
 
-// 13 Pagination displayed table 500 lines per page
-function paginateTable(tableName, page = 1, pageSize = 500) {
-  const offset = (page - 1) * pageSize;
-  const data = db.exec(
-    `SELECT * FROM "${tableName}" LIMIT ${pageSize} OFFSET ${offset};`,
-  );
-  const totalLines =
-    db.exec(`SELECT * FROM "${tableName}";`)[0]?.values.length || 0;
-  const totalPages = Math.ceil(totalLines / pageSize);
+  paginationUl.innerHTML = "";
 
-  // code to render pagination controls and handle page changes
+  for (let i = 1; i <= totalPages; i++) {
+    const li = document.createElement("li");
+    li.className = `page-item ${i === page ? "active" : ""}`;
+
+    const a = document.createElement("a");
+    a.className = "page-link";
+    a.textContent = i;
+    a.href = "#";
+
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      console.log(i);
+
+      paginateTable(tableName, i, pageSize);
+    });
+
+    li.appendChild(a);
+    paginationUl.appendChild(li);
+  }
 }
 // 8 Renders a card showing the verify() output of the file
 // async function displayVerif(file) {
@@ -357,24 +370,24 @@ document
 
     const sigPairs = await pairingSig(file);
 
-    if (displayVerifArray(file)) {
-      const sqliteFile = sigPairs.find((pair) =>
-        pair.name.endsWith(".sqlite"),
-      ).doc;
+    displayVerifArray(file);
 
-      await loadDB(sqliteFile);
+    const sqliteFile = sigPairs.find((pair) =>
+      pair.name.endsWith(".sqlite"),
+    ).doc;
 
-      //add montant and inner join on facture_reglements once table is not empty
-      const view = db.exec(
-        `SELECT facture.id, total_ttc, libelle, quantite, total_ht
+    await loadDB(sqliteFile);
+
+    //add montant and inner join on facture_reglements once table is not empty
+    const view = db.exec(
+      `SELECT facture.id, total_ttc, libelle, quantite, total_ht
         FROM facture 
         INNER JOIN facture_articles 
         ON facture.id = facture_articles.parent;`,
-      );
+    );
 
-      exportViewAsCSV(view);
+    //exportViewAsCSV(view);
 
-      const tables = getTablesList();
-      displayTables(tables);
-    }
+    const tables = getTablesList();
+    displayTables(tables);
   });
