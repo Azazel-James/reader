@@ -4,6 +4,7 @@ const SQL = await initSqlJs({
   locateFile: (file) => `https://sql.js.org/dist/${file}`,
 });
 let db = "";
+const input = document.querySelector("#zipFileInput");
 const select = document.querySelector("#tabSelect");
 const verifCard = document.querySelector("#verify");
 const paginationUl = document.querySelector(".pagination");
@@ -159,6 +160,7 @@ function displayTables(tables) {
     select.appendChild(option);
   });
 }
+
 // 13 Pagination displayed table 500 lines per page
 function paginateTable(tableName, page = 1, pageSize = 500) {
   const article = document.querySelector("#tabStructure");
@@ -180,11 +182,6 @@ function paginateTable(tableName, page = 1, pageSize = 500) {
     "mb-3 p-2 bg-secondary-subtle text-secondary-emphasis text-center rounded";
   title.textContent = tableName.toUpperCase();
   article.appendChild(title);
-
-  const dataTitle = document.createElement("h6");
-  dataTitle.textContent = "Données (max 500 lignes)";
-  dataTitle.className = "mt-4";
-  article.appendChild(dataTitle);
 
   if (totalLines === 0) {
     const alert = document.createElement("div");
@@ -253,6 +250,7 @@ function paginateTable(tableName, page = 1, pageSize = 500) {
     paginationUl.appendChild(li);
   }
 }
+
 // 8 Renders a card showing the verify() output of the file
 // async function displayVerif(file) {
 //   const { dbFile, sigFile, keyFile } = await getFile(file);
@@ -300,7 +298,7 @@ async function displayVerifArray(file) {
         f.filenames.push(pair.name);
       }
     }
-    verifCard.className = "card mt-3 bg-info-subtle text-info-emphasis";
+    verifCard.className = "card my-3 bg-info-subtle text-info-emphasis";
     verifCard.querySelector(".card-body").textContent =
       `${f.count} fichier(s) KO : ${f.filenames.join(", ")} .`;
   });
@@ -308,8 +306,8 @@ async function displayVerifArray(file) {
 
 //9 Get a saved query result (view param) and export it as a csv file
 function exportViewAsCSV(view) {
-  const columns = view[0].columns;
-  const rows = view[0].values;
+  const columns = view[0].columns || [];
+  const rows = view[0].values || [];
 
   let csvContent =
     "data:text/csv;charset=utf-8," +
@@ -334,6 +332,7 @@ function exportViewAsCSV(view) {
 async function saslogVerify() {
   // code here
 }
+
 // 11 Renders the result of the comparison in a new card on the HTML page
 
 // 12 Export each table from the db as a csv file
@@ -361,33 +360,90 @@ async function exportAllTablesAsCSV() {
     document.body.removeChild(link);
   });
 }
-// 7 Manages actions triggered by event on the select input used to choose the displayed table
-document
-  .querySelector("#zipFileInput")
-  .addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
 
-    const sigPairs = await pairingSig(file);
+//14 Export facture as a csv file
+function exportFactureCSV() {
+  // make 3 queries to facture, facture_articles and facture_reglements, save the results to create one full facture view and export
+  const facture = db.exec(
+    `SELECT id AS "facture.id", total_ttc AS prix FROM facture;`,
+  );
+  const articles = db.exec(
+    `SELECT parent, libelle AS article FROM facture_articles ORDER BY parent ASC;`,
+  );
+  const reglements = db.exec(
+    `SELECT parent, montant AS reglee FROM facture_reglements ORDER BY parent ASC;`,
+  );
 
-    displayVerifArray(file);
+  console.log(facture, articles, reglements);
+  // create an array of objects with the data from the 3 tables, each object represents a facture with its articles and reglements
+  // every element in one object as the same parent id as the facture id
+  // {facture.id, prix, articles[], reglements[]}
 
-    const sqliteFile = sigPairs.find((pair) =>
-      pair.name.endsWith(".sqlite"),
-    ).doc;
+  let fullFacture = [];
 
-    await loadDB(sqliteFile);
+  facture[0].values.forEach((f) => {
+    const fObj = { facture_id: f[0], prix: f[1], articles: [], reglements: [] };
 
-    //add montant and inner join on facture_reglements once table is not empty
-    const view = db.exec(
-      `SELECT facture.id, total_ttc, libelle, quantite, total_ht
-        FROM facture 
-        INNER JOIN facture_articles 
-        ON facture.id = facture_articles.parent;`,
-    );
+    articles[0].values.forEach((a) => {
+      if (a[0] === fObj.facture_id) {
+        fObj.articles.push(a[1]);
+      }
+    });
 
-    //exportViewAsCSV(view);
+    reglements[0].values.forEach((r) => {
+      if (r[0] === fObj.facture_id) {
+        fObj.reglements.push(r[1]);
+      }
+    });
 
-    const tables = getTablesList();
-    displayTables(tables);
+    fullFacture.push(fObj);
   });
+
+  console.log(fullFacture);
+  // export fullFacture as a csv file with the format : id, prix, articles (separated by a line break), reglements (separated by a line break)
+  let csvContent =
+    "data:text/csv;charset=utf-8," +
+    ["facture.id", "prix", "articles", "reglements"].join(",") +
+    "\n" +
+    fullFacture
+      .map(
+        (f) =>
+          `${f.facture_id},${f.prix},"${f.articles.join("\n")}","${f.reglements.join(
+            "\n",
+          )}"`,
+      )
+      .join("\n");
+
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", `full_facture_export.csv`);
+
+  document.body.appendChild(link);
+  link.onclick = () => {
+    return confirm(`Télécharger la vue facture complète en CSV ?`);
+  };
+  link.click();
+  document.body.removeChild(link);
+}
+
+// 7 Manages actions triggered by event on the select input used to choose the displayed table
+input.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const sigPairs = await pairingSig(file);
+
+  displayVerifArray(file);
+
+  const sqliteFile = sigPairs.find((pair) => pair.name.endsWith(".sqlite")).doc;
+
+  await loadDB(sqliteFile);
+
+  exportFactureCSV();
+
+  //exportViewAsCSV();
+
+  const tables = getTablesList();
+  displayTables(tables);
+});
