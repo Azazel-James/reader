@@ -1,2 +1,3 @@
-# reader
-# reader
+# Reader
+
+Interface simple d'affichage de donnés.
