@@ -335,9 +335,10 @@ async function saslogVerify() {
 
 // 11 Renders the result of the comparison in a new card on the HTML page
 
-// 12 Export each table from the db as a csv file
+// 12 Export each table from the db as a csv file one dowload in a zip file
 async function exportAllTablesAsCSV() {
   const tables = getTablesList();
+  let zipExportAll = new zip.ZipWriter(new zip.BlobWriter("application/zip"));
 
   tables.forEach((table) => {
     const { columns, rows } = getTableData(table);
@@ -346,38 +347,42 @@ async function exportAllTablesAsCSV() {
       columns.join(",") +
       "\n" +
       rows.map((e) => e.join(",")).join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${table}_export.csv`);
-
-    document.body.appendChild(link);
-    link.onclick = () => {
-      return confirm(`Télécharger la table ${table} en CSV ?`);
-    };
-    link.click();
-    document.body.removeChild(link);
+    zipExportAll.add(
+      `${table}_table_export.csv`,
+      new zip.TextReader(csvContent),
+    );
   });
+
+  // Save the zip file
+  const zipBlob = await zipExportAll.close();
+  const encodedUri = encodeURI(URL.createObjectURL(zipBlob));
+  const link = document.createElement("a");
+  link.setAttribute("href", encodedUri);
+  link.setAttribute("download", "all_tables_export.zip");
+
+  document.body.appendChild(link);
+  link.onclick = () => {
+    return confirm(`Télécharger toutes les tables en CSV zip ?`);
+  };
+  link.click();
+  document.body.removeChild(link);
 }
 
 //14 Export facture as a csv file
 function exportFactureCSV() {
   // make 3 queries to facture, facture_articles and facture_reglements, save the results to create one full facture view and export
-  const facture = db.exec(
-    `SELECT id AS "facture.id", total_ttc AS prix FROM facture;`,
-  );
+  const facture = db.exec(`SELECT id AS "facture.id", total_ttc FROM facture;`);
   const articles = db.exec(
-    `SELECT parent, libelle AS article FROM facture_articles ORDER BY parent ASC;`,
+    `SELECT parent, libelle, quantite, prix_unitaire, total_ht, taux_tva FROM facture_articles ORDER BY parent ASC;`,
   );
   const reglements = db.exec(
-    `SELECT parent, montant AS reglee FROM facture_reglements ORDER BY parent ASC;`,
+    `SELECT parent, montant, mode_de_paiement AS en FROM facture_reglements ORDER BY parent ASC;`,
   );
 
   console.log(facture, articles, reglements);
   // create an array of objects with the data from the 3 tables, each object represents a facture with its articles and reglements
   // every element in one object as the same parent id as the facture id
-  // {facture.id, prix, articles[], reglements[]}
+  // {facture.id, prix, articles[{libelle, quantite, prix_unitaire, total_ht, taux_tva}], reglements[{montant, mode_de_paiement}]}
 
   let fullFacture = [];
 
@@ -386,13 +391,22 @@ function exportFactureCSV() {
 
     articles[0].values.forEach((a) => {
       if (a[0] === fObj.facture_id) {
-        fObj.articles.push(a[1]);
+        fObj.articles.push({
+          libelle: a[1],
+          quantite: a[2],
+          prix_unitaire: a[3],
+          total_ht: a[4],
+          taux_tva: a[5],
+        });
       }
     });
 
     reglements[0].values.forEach((r) => {
       if (r[0] === fObj.facture_id) {
-        fObj.reglements.push(r[1]);
+        fObj.reglements.push({
+          montant: r[1],
+          mode_de_paiement: r[2],
+        });
       }
     });
 
@@ -400,19 +414,30 @@ function exportFactureCSV() {
   });
 
   console.log(fullFacture);
-  // export fullFacture as a csv file with the format : id, prix, articles (separated by a line break), reglements (separated by a line break)
+  // export fullFacture as a dff csv file
   let csvContent =
     "data:text/csv;charset=utf-8," +
-    ["facture.id", "prix", "articles", "reglements"].join(",") +
-    "\n" +
-    fullFacture
-      .map(
-        (f) =>
-          `${f.facture_id},${f.prix},"${f.articles.join("\n")}","${f.reglements.join(
-            "\n",
-          )}"`,
-      )
-      .join("\n");
+    [
+      "facture.id",
+      "facture.total_ttc",
+      "facture_articles.libelle",
+      "facture_articles.quantite",
+      "facture_articles.prix_unitaire",
+      "facture_articles.total_ht",
+      "facture_articles.taux_tva",
+      "facture_reglements.montant",
+      "facture_reglements.mode_de_paiement",
+    ].join(",") +
+    "\n";
+  fullFacture.forEach((f) => {
+    csvContent += `${f.facture_id}, ${f.prix},,,,,,,\n`;
+    f.articles.forEach((a) => {
+      csvContent += `${f.facture_id},, ${a.libelle}, ${a.quantite}, ${a.prix_unitaire}, ${a.total_ht}, ${a.taux_tva},,\n`;
+    });
+    f.reglements.forEach((r) => {
+      csvContent += `${f.facture_id},,,,,,, ${r.montant}, ${r.mode_de_paiement}\n`;
+    });
+  });
 
   const encodedUri = encodeURI(csvContent);
   const link = document.createElement("a");
@@ -441,8 +466,7 @@ input.addEventListener("change", async (e) => {
   await loadDB(sqliteFile);
 
   exportFactureCSV();
-
-  //exportViewAsCSV();
+  exportAllTablesAsCSV();
 
   const tables = getTablesList();
   displayTables(tables);
