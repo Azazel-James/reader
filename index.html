@@ -13,10 +13,11 @@
   </head>
 
   <body>
-    <main class="container">
-      <div>
+    <header class="container-fluid">
+      <div class="w-50 mx-auto">
         <h1>Bonjour!</h1>
 
+        <label for="zipFileInput">1. Choisissez le dossier à traiter</label>
         <input
           class="form-control mt-3"
           type="file"
@@ -25,29 +26,34 @@
         />
 
         <article class="mt-3">
-          <label for="tabSelect">Sélectionnez une table à afficher</label>
+          <label for="tabSelect">2. Sélectionnez une table à afficher</label>
           <select class="form-select" id="tabSelect">
             <option value="">-- Choisir une table --</option>
           </select>
+          <a id="exportBtn" class="btn btn-primary my-3">Exporter</a>
         </article>
       </div>
+    </header>
 
-      <div class="card mt-3">
-        <!-- Elements de la table -->
-        <article id="tabStructure"></article>
-      </div>
-
+    <main class="container-fluid">
       <div id="verify">
         <!-- Résultat de la vérification -->
         <article class="card-body"></article>
       </div>
 
-      <nav aria-label="Page navigation mt-3">
-        <ul class="pagination justify-content-end">
+      <div class="card my-5 w-75 mx-auto">
+        <!-- Elements de la table -->
+        <article id="tabStructure"></article>
+      </div>
+    </main>
+
+    <footer>
+      <nav aria-label="Page navigation">
+        <ul class="pagination justify-content-end me-5">
           <!-- Pagination -->
         </ul>
       </nav>
-    </main>
+    </footer>
 
     <script type="importmap">
       {
@@ -57,7 +63,6 @@
       }
     </script>
     <script src="sql-wasm.js"></script>
-    <!-- <script type="module" src="main.js"></script> -->
     <script type="module" src="app.js"></script>
   </body>
 </html>
