@@ -8,6 +8,7 @@ const input = document.querySelector("#zipFileInput");
 const select = document.querySelector("#tabSelect");
 const link = document.querySelector("#exportBtn");
 const verifCard = document.querySelector("#verify");
+const verifyBtn = document.querySelector("#verifyBtn");
 const paginationUl = document.querySelector(".pagination");
 
 //crypto verif functions
@@ -202,6 +203,11 @@ function displayTables(tables) {
           genericExport(tableName);
         }
       });
+
+      //Adds EL on the verify btn, sends the api call
+      verifyBtn.addEventListener("click", () => {
+        saslogVerify(tableName);
+      });
     });
 
     // Adds the generated option to the select
@@ -319,7 +325,7 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
 
     // Creates an anchor element for each page
     const a = document.createElement("a");
-    a.className = "page-link bg-dark";
+    a.className = "page-link";
     a.textContent = i;
     a.href = "#";
 
@@ -393,7 +399,7 @@ async function displayVerifArray(file) {
   // If no pem file found, displays an alert and exits the function (avoid errors in the verify func)
   if (!pem) {
     verifCard.className =
-      "card my-3 bg-info-subtle w-75 mx-auto text-center text-info-emphasis";
+      "card my-3 bg-info-subtle text-center text-info-emphasis";
     verifCard.querySelector(".card-body").textContent =
       `Clé publique introuvable.`;
     return;
@@ -420,7 +426,7 @@ async function displayVerifArray(file) {
 
     // Displays the results in a card with the number of fails and the (failed) file names
     verifCard.className =
-      "card my-3 bg-info-subtle w-75 mx-auto text-info-emphasis";
+      "card my-3 bg-info-subtle text-center text-info-emphasis";
     verifCard.querySelector(".card-body").textContent =
       `${f.count} fichier(s) KO : ${f.filenames.join(", ")} .`;
   });
@@ -452,16 +458,16 @@ async function displayVerifArray(file) {
 
 // 10 Send signatures to SAS to verify them (not optimized yet)
 async function saslogVerify(tableName) {
-  let data = [];
-
   // All data or just signature and ID ?
-  //const data = getTableData(tableName);
+
+  const data = getTableData(tableName);
+
+  // let data = [];
 
   // Gets the data to send in the API call (id and signature), creates an array of objects
-
-  getTableData(tableName).forEach((row) => {
-    data.push({ id: row[0], sig: row[1] });
-  });
+  // getTableData(tableName).forEach((row) => {
+  //   data.push({ id: row[0], sig: row[1] });
+  // });
 
   // Calls the API with the data array in the body, logs the response or errors
   fetch("/verifyMany", {
