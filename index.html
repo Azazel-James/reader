@@ -12,36 +12,44 @@
     />
   </head>
 
-  <body>
-    <header class="container-fluid">
-      <div class="w-50 mx-auto">
-        <h1>Bonjour!</h1>
+  <body class="p-5">
+    <header class="mt-5">
+      <div class="mx-auto">
+        <h1 class="text-center">Bonjour!</h1>
 
-        <label for="zipFileInput">1. Choisissez le dossier à traiter</label>
-        <input
-          class="form-control mt-3"
-          type="file"
-          accept="application/zip"
-          id="zipFileInput"
-        />
+        <div class="row">
+          <label for="zipFileInput" class="form-label"
+            >1. Choisissez le dossier à traiter</label
+          >
+          <input
+            class="form-control mt-3"
+            type="file"
+            accept="application/zip"
+            id="zipFileInput"
+          />
+        </div>
 
         <article class="mt-3">
-          <label for="tabSelect">2. Sélectionnez une table à afficher</label>
-          <select class="form-select" id="tabSelect">
-            <option value="">-- Choisir une table --</option>
-          </select>
+          <div class="row">
+            <label for="tabSelect" class="form-label"
+              >2. Sélectionnez une table à afficher</label
+            >
+            <select class="form-select" id="tabSelect">
+              <option value="">-- Choisir une table --</option>
+            </select>
+          </div>
           <a id="exportBtn" class="btn btn-primary my-3">Exporter</a>
         </article>
       </div>
     </header>
 
-    <main class="container-fluid">
+    <main class="">
       <div id="verify">
         <!-- Résultat de la vérification -->
         <article class="card-body"></article>
       </div>
 
-      <div class="card my-5 w-75 mx-auto">
+      <div class="card my-5 mx-auto">
         <!-- Elements de la table -->
         <article id="tabStructure"></article>
       </div>

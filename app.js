@@ -180,8 +180,9 @@ function displayTables(tables) {
         while (verifCard.firstChild) {
           verifCard.removeChild(verifCard.firstChild);
         }
+
         const alert = document.createElement("div");
-        alert.className = "alert alert-info";
+        alert.className = "alert alert-info text-center";
         alert.textContent =
           "Pas d'affichage pour le moment. Cliquez sur le bouton Exporter pour télécharger la vue complète des factures en CSV.";
         verifCard.appendChild(alert);
@@ -269,6 +270,11 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
     th.textContent = colName;
     hRow.appendChild(th);
   });
+
+  // Adds a header for the verification status column
+  const th = document.createElement("th");
+  th.textContent = "Vérification";
+  hRow.appendChild(th);
 
   // Adds the header row to the table head, then adds the head to the table
   thead.appendChild(hRow);
@@ -384,6 +390,15 @@ async function displayVerifArray(file) {
     }
   }
 
+  // If no pem file found, displays an alert and exits the function (avoid errors in the verify func)
+  if (!pem) {
+    verifCard.className =
+      "card my-3 bg-info-subtle w-75 mx-auto text-center text-info-emphasis";
+    verifCard.querySelector(".card-body").textContent =
+      `Clé publique introuvable.`;
+    return;
+  }
+
   // For each object in the array, verifies if a signature exists
   sigPairs.forEach(async (pair) => {
     if (pair.sig) {
@@ -405,7 +420,7 @@ async function displayVerifArray(file) {
 
     // Displays the results in a card with the number of fails and the (failed) file names
     verifCard.className =
-      "card my-3 bg-info-subtle w-50 mx-auto text-info-emphasis";
+      "card my-3 bg-info-subtle w-75 mx-auto text-info-emphasis";
     verifCard.querySelector(".card-body").textContent =
       `${f.count} fichier(s) KO : ${f.filenames.join(", ")} .`;
   });
@@ -435,11 +450,15 @@ async function displayVerifArray(file) {
 //   document.body.removeChild(link);
 // }
 
-// 10 Send signatures to SAS to verify them
+// 10 Send signatures to SAS to verify them (not optimized yet)
 async function saslogVerify(tableName) {
   let data = [];
 
+  // All data or just signature and ID ?
+  //const data = getTableData(tableName);
+
   // Gets the data to send in the API call (id and signature), creates an array of objects
+
   getTableData(tableName).forEach((row) => {
     data.push({ id: row[0], sig: row[1] });
   });
@@ -452,7 +471,8 @@ async function saslogVerify(tableName) {
   })
     .then((response) => response.json())
     .then((res) => {
-      console.log("Résultat de la vérification :", res);
+      console.log(res);
+      // data usage goes here
       return res;
     })
     .catch((error) => {
@@ -578,7 +598,7 @@ function exportFactureCSV() {
 }
 
 // 7 Manages actions triggered by event on the select input used to choose the displayed table
-input.addEventListener("input", async (e) => {
+input.addEventListener("change", async (e) => {
   // Gets the file from the input, exits if no file is selected (avoid errors)
   const file = e.target.files[0];
   if (!file) return;
