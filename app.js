@@ -61,26 +61,6 @@ async function verifySig(pem, signature, encodedData) {
 
 //page rendering functions
 
-// 1 Extract the .sqlite, .sqlite.sig, .pem files from the archive returns blob files
-// async function getFile(zipF) {
-//   const reader = new zip.ZipReader(new zip.BlobReader(zipF));
-//   const entries = await reader.getEntries();
-
-//   let dbFile, sigFile, keyFile;
-
-//   for (const entry of entries) {
-//     if (entry.filename.endsWith(".sqlite")) {
-//       dbFile = await entry.getData(new zip.BlobWriter());
-//     } else if (entry.filename.endsWith(".sqlite.sig")) {
-//       sigFile = await entry.getData(new zip.BlobWriter());
-//     } else if (entry.filename.endsWith(".pem")) {
-//       keyFile = await entry.getData(new zip.BlobWriter());
-//     }
-//   }
-//   await reader.close();
-//   return { dbFile, sigFile, keyFile };
-// }
-
 // 1' Extract each file and pairs signature files with their corresponding document, returns an array of objects {doc, name, sig}
 async function pairingSig(zipFile) {
     // Create a zip reader to read the zip file and get the files that are in it
@@ -159,9 +139,11 @@ function displayTables(tables) {
         select.appendChild(option);
     });
 
+    let tableName;
     // Adds an EL to display the selected table
-    select.addEventListener("change", (e) => {
-        const tableName = e.target.value;
+    select.addEventListener("change", () => {
+        tableName = select.value;
+
         if (!tableName) return;
 
         if (tableName === "fullFacture") {
@@ -177,24 +159,33 @@ function displayTables(tables) {
         } else {
             verifCard.innerHTML = "";
             displayDataPag(tableName);
-        }
 
-        // Adds an EL on the export btn to export the selected table as csv
-        link.addEventListener("click", () => {
-            // Facture export gathers data from facture table and its child tables so it has a specific export function
-            if (tableName === "fullFacture") {
-                exportFactureCSV();
-                return;
+            if (tableName.startsWith("facture_")) {
+                verifyBtn.classList.add("disabled");
+                document.querySelectorAll(".signature-status").forEach((cell) => {
+                    cell.innerHTML = `&#9203; Pas de signature`;
+                });
             } else {
-                // For other tables, export is standard
-                genericExport(tableName);
+                verifyBtn.classList.remove("disabled");
             }
-        });
+        }
+    });
 
-        //Adds EL on the verify btn, sends the api call
-        verifyBtn.addEventListener("click", () => {
-            saslogVerify(tableName);
-        });
+    // Adds an EL on the export btn to export the selected table as csv
+    link.addEventListener("click", () => {
+        // Facture export gathers data from facture table and its child tables so it has a specific export function
+        if (tableName === "fullFacture") {
+            exportFactureCSV();
+            return;
+        } else {
+            // For other tables, export is standard
+            genericExport(tableName);
+        }
+    });
+
+    //Adds EL on the verify btn, sends the api call
+    verifyBtn.addEventListener("click", () => {
+        saslogVerify(tableName);
     });
 }
 
@@ -239,7 +230,7 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
 
     // Table element stripped, bordered, hoverable and little padding
     const dataTable = document.createElement("table");
-    dataTable.className = "table table-hover table-striped table-bordered table-sm";
+    dataTable.className = "table table-hover table-striped table-bordered table-sm align-middle";
 
     // Thead with dark background for column names
     const thead = document.createElement("thead");
@@ -282,7 +273,7 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
         // Creates a cell for the signature verification, adds a class (necessary for update), adds default content,
         // adds cell to row before adding row to table body
         const statusCell = document.createElement("td");
-        statusCell.classList.add("signature-status");
+        statusCell.classList.add("signature-status", "text-center");
         statusCell.innerHTML = "&#9203; Statut inconnu"; //Hourglass symbol
         row.appendChild(statusCell);
         tbody.appendChild(row);
@@ -325,11 +316,11 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
 // 15 Displays the counts for verification status
 function countDisplay(data) {
     const okSpan = document.createElement("span");
-    okSpan.className = "alert alert-success";
+    okSpan.className = "alert alert-success mb-1";
     okSpan.innerHTML = `&#9989; ${data.found.length} signature(s) trouvée(s)`;
 
     const koSpan = document.createElement("span");
-    koSpan.className = "alert alert-warning";
+    koSpan.className = "alert alert-danger mb-0";
     koSpan.innerHTML = `&#10060; ${data.missing.length} signature(s) manquante(s)`;
 
     verifCard.className = "card my-3 text-center";
@@ -340,9 +331,11 @@ function countDisplay(data) {
 // 17 Update the displayed table with the verification status for each line
 function updateTableDisplay(data) {
     const rows = document.querySelectorAll(`tr[data-signature]`);
+
     let found = new Set(data.found);
+
     rows.forEach((row) => {
-        if (found.has(row)) {
+        if (found.has(row.dataset.signature)) {
             row.querySelector(".signature-status").innerHTML = "&#9989;";
         } else {
             row.querySelector(".signature-status").innerHTML = "&#10060;";
@@ -421,38 +414,10 @@ async function displayVerifArray(file) {
     });
 }
 
-// //9 Get a saved query result (view param) and export it as a csv file
-// function exportViewAsCSV(view) {
-//   const columns = view[0].columns || [];
-//   const rows = view[0].values || [];
-
-//   let csvContent =
-//     "data:text/csv;charset=utf-8," +
-//     columns.join(",") +
-//     "\n" +
-//     rows.map((e) => e.join(",")).join("\n");
-
-//   const encodedUri = encodeURI(csvContent);
-//   const link = document.createElement("a");
-//   link.setAttribute("href", encodedUri);
-//   link.setAttribute("download", "view_export.csv");
-
-//   document.body.appendChild(link);
-//   link.onclick = () => {
-//     return confirm("Télécharger la vue en CSV ?");
-//   };
-//   link.click();
-//   document.body.removeChild(link);
-// }
-
 // 10 Send signatures to SAS to verify them (not optimized yet)
 async function saslogVerify(tableName) {
-    let payload = [];
-    let table = getTableData(tableName);
-    table.rows.forEach((row) => {
-        payload.push(row[1]);
-    });
-    console.log(payload);
+    const table = getTableData(tableName);
+    const payload = table.rows.map((row) => row[1]);
 
     // Calls the API with the data array in the body, logs the response or errors
     fetch("https://saslog.dokos.cloud/saslog/v1/verifyMany", {
@@ -461,7 +426,6 @@ async function saslogVerify(tableName) {
     })
         .then((response) => response.json())
         .then((data) => {
-            console.trace(data);
             countDisplay(data);
             updateTableDisplay(data);
         })
@@ -469,17 +433,6 @@ async function saslogVerify(tableName) {
             console.error("Erreur lors de la vérification :", error);
         });
 }
-
-// async function verifym(tableName) {
-//     let data = getTableData(tableName);
-
-//     await new Promise((resolve) => setTimeout(resolve, 800));
-
-//     return data.map((row) => ({
-//         id: row.id,
-//         ok: Math.random() > 0.3,
-//     }));
-// }
 
 // 12 Export a table as a csv file, table = select option
 function genericExport(tableName) {
@@ -595,7 +548,7 @@ function exportFactureCSV() {
     };
 }
 
-// 7 Manages actions triggered by event on the select input used to choose the displayed table
+// 7 Manages actions triggered by adding a file to the input
 input.addEventListener("change", async (e) => {
     // Gets the file from the input, exits if no file is selected (avoid errors)
     const file = e.target.files[0];
