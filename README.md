@@ -1,4 +1,5 @@
 # Reader
+Interface simple d'affichage de donnés.
 
 Au chargement de la page, sélectionner un fichier zip à partir de l'input (étape 1). S'il contient un fichier sqlite, choisir une table à afficher à partir du selecteur.
 
