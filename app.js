@@ -6,7 +6,7 @@ const SQL = await initSqlJs({
 let db = "";
 const input = document.querySelector("#zipFileInput");
 const select = document.querySelector("#tabSelect");
-const link = document.querySelector("#exportBtn");
+const exportBtn = document.querySelector("#exportBtn");
 const verifCard = document.querySelector("#verify");
 const verifyBtn = document.querySelector("#verifyBtn");
 const paginationUl = document.querySelector(".pagination");
@@ -124,6 +124,14 @@ function getTableData(tableName) {
 
 // 5 Renders a table with the data from a selected db table
 function displayTables(tables) {
+    // Avoid stacking options on file change
+    select.innerHTML = "";
+
+    // Adds an empty option at the top of the select.
+    const optionNull = document.createElement("option");
+    optionNull.textContent = "-- Choisir une table --";
+    select.appendChild(optionNull);
+
     // Adds an option element for the full facture to the select. This option is not a distinct table in the db.
     const facture = document.createElement("option");
     facture.value = "fullFacture";
@@ -172,7 +180,7 @@ function displayTables(tables) {
     });
 
     // Adds an EL on the export btn to export the selected table as csv
-    link.addEventListener("click", () => {
+    exportBtn.addEventListener("click", () => {
         // Facture export gathers data from facture table and its child tables so it has a specific export function
         if (tableName === "fullFacture") {
             exportFactureCSV();
@@ -197,6 +205,7 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
     // Calculations to set the pagination and get the data for the current page
     const offset = (page - 1) * pageSize;
     const data = db.exec(`SELECT * FROM "${tableName}" LIMIT ${pageSize} OFFSET ${offset};`);
+    console.log(data);
 
     // Query to get the length of the table, used to calculate the # of pages for pagination. Set total lines to 0 if table is empty (avoid errors)
     const totalLines = db.exec(`SELECT * FROM "${tableName}";`)[0]?.values.length || 0;
@@ -329,20 +338,34 @@ function countDisplay(data) {
 }
 
 // 17 Update the displayed table with the verification status for each line
-function updateTableDisplay(data) {
+async function updateTableDisplay(tableName, data) {
+    const obj = rebuiltJson(tableName);
+    const cryptoVerif = await Promise.all(obj.map((row) => verifyByLine(row)));
+
+    console.log(cryptoVerif);
+
     const rows = document.querySelectorAll(`tr[data-signature]`);
 
+    let apiVerif;
     let found = new Set(data.found);
 
-    rows.forEach((row) => {
+    rows.forEach((row, i) => {
         if (found.has(row.dataset.signature)) {
-            row.querySelector(".signature-status").innerHTML = "&#9989;";
+            apiVerif = true;
         } else {
-            row.querySelector(".signature-status").innerHTML = "&#10060;";
+            apiVerif = false;
         }
+        row.querySelector(".signature-status").innerHTML = iconVerif(cryptoVerif[i], apiVerif);
     });
 }
 
+// 21 Assign symbol to status verification (used in update table display)
+function iconVerif(cryptoVerif, apiVerif) {
+    const iconApi = apiVerif ? "&#9989;" : "&#10060;";
+    const iconCrypto = cryptoVerif ? "&#128274;" : "&#10060;";
+
+    return iconCrypto + iconApi;
+}
 // 8 Renders a card showing the verify() output of the file
 // async function displayVerif(file) {
 //   const { dbFile, sigFile, keyFile } = await getFile(file);
@@ -385,7 +408,12 @@ async function displayVerifArray(file) {
     // If no pem file found, displays an alert and exits the function (avoid errors in the verify func)
     if (!pem) {
         verifCard.className = "card my-3 bg-info-subtle text-center text-info-emphasis";
-        verifCard.querySelector(".card-body").textContent = `Clé publique introuvable.`;
+
+        const article = document.createElement("article");
+        article.className = "card-body";
+        article.textContent = `Clé publique introuvable.`;
+        verifCard.appendChild(article);
+
         return;
     }
 
@@ -407,14 +435,17 @@ async function displayVerifArray(file) {
                 f.filenames.push(pair.name);
             }
         }
-
-        // Displays the results in a card with the number of fails and the (failed) file names
-        verifCard.className = "card my-3 bg-info-subtle text-center text-info-emphasis";
-        verifCard.querySelector(".card-body").textContent = `${f.count} fichier(s) KO : ${f.filenames.join(", ")} .`;
     });
+    // Displays the results in a card with the number of fails and the (failed) file names
+    verifCard.innerHTML = "";
+    verifCard.className = "card my-3 bg-info-subtle text-center text-info-emphasis";
+    const article = document.createElement("article");
+    article.className = "card-body";
+    article.textContent = `${f.count} fichier(s) KO : ${f.filenames.join(", ")} .`;
+    verifCard.appendChild(article);
 }
 
-// 10 Send signatures to SAS to verify them (not optimized yet)
+// 10 Send signatures to SAS to verify them. Calls update table fn if it gets an answer.
 async function saslogVerify(tableName) {
     const table = getTableData(tableName);
     const payload = table.rows.map((row) => row[1]);
@@ -427,11 +458,80 @@ async function saslogVerify(tableName) {
         .then((response) => response.json())
         .then((data) => {
             countDisplay(data);
-            updateTableDisplay(data);
+            updateTableDisplay(tableName, data);
         })
         .catch((error) => {
             console.error("Erreur lors de la vérification :", error);
         });
+}
+
+// 18 Build a json from a db table
+function rebuiltJson(tableName) {
+    const { columns, rows } = getTableData(tableName);
+
+    let obj;
+
+    // 1 object
+    let lines = rows.map((line) => {
+        obj = {};
+
+        columns.forEach((col, i) => {
+            obj[col] = line[i];
+        });
+        return obj;
+    });
+    return lines;
+}
+
+// 19 Returns a stringify json without the signature column (works for ONE entry/row/line of the json file)
+function rebuiltRow(objRow) {
+    //
+    const sorted = Object.keys(data)
+        .sort()
+        .reduce((obj, key) => {
+            obj[key] = data[key];
+            return obj;
+        }, {});
+
+    return JSON.stringify(sorted);
+}
+
+// 20 Verify ONE line/entry/row of the object using web crypto, returns true or false
+async function verifyByLine(objRow) {
+    // 3 Uint8Array
+    // 4 window.crypto.subtle.verify
+    const file = input.files[0];
+
+    const sigPairs = await pairingSig(file);
+    let pem;
+
+    for (const pair of sigPairs) {
+        if (pair.name.endsWith(".pem")) {
+            pem = await pair.doc.text();
+        }
+    }
+
+    const line = rebuiltRow(objRow);
+
+    if (!publicKey) {
+        publicKey = await importRsaKey(pem);
+    }
+
+    const signature = str2ab(objRow._signature);
+
+    const encodedData = str2ab(line);
+
+    // Verify the signature using the public key
+    const verifyResult = await window.crypto.subtle.verify(
+        {
+            name: "Ed25519",
+        },
+        publicKey,
+        signature,
+        encodedData
+    );
+
+    return verifyResult;
 }
 
 // 12 Export a table as a csv file, table = select option
@@ -447,8 +547,8 @@ function genericExport(tableName) {
     const encodedUri = encodeURI(csvContent);
 
     // Sets the href to the encoded URI and download attribute file name to a default value for the export link/btn
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `${tableName}_table_export.csv`);
+    exportBtn.setAttribute("href", encodedUri);
+    exportBtn.setAttribute("download", `${tableName}_table_export.csv`);
 }
 
 //14 Export facture as a csv file
@@ -539,19 +639,19 @@ function exportFactureCSV() {
     // Turns the csv content into an encoded URI
     const encodedUri = encodeURI(csvContent);
     // Sets the href to the encoded URI and download attribute file name to a default value for the export link/btn
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `full_facture_export.csv`);
+    exportBtn.setAttribute("href", encodedUri);
+    exportBtn.setAttribute("download", `full_facture_export.csv`);
 
     // Adds a confirmation on click to avoid accidental downloads
-    link.onclick = () => {
+    exportBtn.onclick = () => {
         return confirm(`Télécharger la vue facture complète en CSV ?`);
     };
 }
 
 // 7 Manages actions triggered by adding a file to the input
-input.addEventListener("change", async (e) => {
+input.addEventListener("change", async () => {
     // Gets the file from the input, exits if no file is selected (avoid errors)
-    const file = e.target.files[0];
+    const file = input.files[0];
     if (!file) return;
 
     // Gets the array of paired documents from the input file
