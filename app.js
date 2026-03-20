@@ -1,5 +1,5 @@
 import "zip.js";
-
+import stringify from "https://esm.sh/safe-stable-stringify";
 const SQL = await initSqlJs({
     locateFile: (file) => `https://sql.js.org/dist/${file}`,
 });
@@ -21,6 +21,20 @@ function str2ab(str) {
         bufView[i] = str.charCodeAt(i);
     }
     return buf;
+}
+
+//
+function base64ToArrayBuffer(base64) {
+    const binaryString = atob(base64);
+
+    const length = binaryString.length;
+    const bytes = new Uint8Array(length);
+
+    for (let i = 0; i < length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    return bytes.buffer;
 }
 
 //import an existing public key (Ed25519) in PEM format to verify the signature
@@ -205,7 +219,6 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
     // Calculations to set the pagination and get the data for the current page
     const offset = (page - 1) * pageSize;
     const data = db.exec(`SELECT * FROM "${tableName}" LIMIT ${pageSize} OFFSET ${offset};`);
-    console.log(data);
 
     // Query to get the length of the table, used to calculate the # of pages for pagination. Set total lines to 0 if table is empty (avoid errors)
     const totalLines = db.exec(`SELECT * FROM "${tableName}";`)[0]?.values.length || 0;
@@ -467,33 +480,155 @@ async function saslogVerify(tableName) {
 
 // 18 Build a json from a db table
 function rebuiltJson(tableName) {
-    const { columns, rows } = getTableData(tableName);
+    if (tableName === "facture") {
+        const facturesStmt = db.prepare(`SELECT * FROM facture;`);
+        const articlesStmt = db.prepare(`SELECT * FROM facture_articles;`);
+        const reglementsStmt = db.prepare(`SELECT * FROM facture_reglements;`);
 
-    let obj;
+        const factures = [];
+        while (facturesStmt.step()) {
+            factures.push(facturesStmt.getAsObject());
+        }
 
-    // 1 object
-    let lines = rows.map((line) => {
-        obj = {};
+        const articles = [];
+        while (articlesStmt.step()) {
+            articles.push(articlesStmt.getAsObject());
+        }
 
-        columns.forEach((col, i) => {
-            obj[col] = line[i];
+        const reglements = [];
+        while (reglementsStmt.step()) {
+            reglements.push(reglementsStmt.getAsObject());
+        }
+
+        const output = [];
+        for (const fac of factures) {
+            let data = { ...fac };
+            fac.articles = [];
+
+            for (const itm of articles) {
+                if (itm._parent === fac._id) {
+                    fac.articles.push(
+                        Object.fromEntries(
+                            Object.entries(itm)
+                                .filter(([key]) => key !== "_id" && key !== "_parent")
+                                .sort()
+                        )
+                    );
+                }
+            }
+
+            fac.reglements = [];
+            for (const reg of reglements) {
+                if (reg._parent === fac._id) {
+                    fac.reglements.push(
+                        Object.fromEntries(
+                            Object.entries(reg)
+                                .filter(([key]) => key !== "_id" && key !== "_parent")
+                                .sort()
+                        )
+                    );
+                }
+            }
+
+            data = { ...fac };
+
+            output.push(data);
+        }
+        console.log(output);
+
+        return output;
+        // let factureObj = factures.values.map((line) => {
+        //     const obj = {};
+        //     facture.columns.forEach((col, i) => {
+        //         obj[col] = line[i];
+        //     });
+        //     return obj;
+        // });
+
+        // const articlesObj = articles.values.map((line) => {
+        //     const obj = {};
+
+        //     articles.columns.forEach((col, i) => {
+        //         obj[col] = line[i];
+        //     });
+        //     return obj;
+        // });
+
+        // const reglementsObj = reglements.values.map((line) => {
+        //     const obj = {};
+
+        //     reglements.columns.forEach((col, i) => {
+        //         obj[col] = line[i];
+        //     });
+        //     return obj;
+        // });
+    } else {
+        const { columns, rows } = getTableData(tableName);
+
+        // 1 object
+        let lines = rows.map((line) => {
+            const obj = {};
+
+            columns.forEach((col, i) => {
+                obj[col] = line[i];
+            });
+            return obj;
         });
-        return obj;
-    });
-    return lines;
+        return lines;
+    }
 }
 
-// 19 Returns a stringify json without the signature column (works for ONE entry/row/line of the json file)
-function rebuiltRow(objRow) {
+// 19 Returns an object for the sas_data (works for ONE entry/row/line of the json file)
+function rebuiltSasData(objRow) {
     //
-    const sorted = Object.keys(data)
+    return Object.keys(objRow)
+        .filter((key) => key !== "_id" && key !== "_signature" && !key.startsWith("meta_"))
         .sort()
         .reduce((obj, key) => {
-            obj[key] = data[key];
+            obj[key] = objRow[key];
             return obj;
         }, {});
+}
 
-    return JSON.stringify(sorted);
+//22
+function getMeta(objRow) {
+    return Object.keys(objRow)
+        .filter((key) => key.startsWith("meta_"))
+        .sort()
+        .reduce((obj, key) => {
+            const cleanKey = key.replace("meta_", "");
+            obj[cleanKey] = objRow[key];
+            if (cleanKey == "sas_sequence_id") {
+                obj[cleanKey] = +obj[cleanKey];
+            }
+            return obj;
+        }, {});
+}
+
+// 23
+function rebuiltData(objRow) {
+    const { previous_signature, ...meta } = getMeta(objRow);
+    const sas_data = rebuiltSasData(objRow);
+
+    return {
+        previous_signature: previous_signature,
+        sas_data,
+        ...meta,
+    };
+}
+
+// 24
+function rebuiltRecord(objRow) {
+    return {
+        data: rebuiltData(objRow),
+        signature: objRow._signature,
+    };
+}
+
+// 25
+function jsonCompact(obj) {
+    // https://stackoverflow.com/a/16168003
+    return stringify(obj);
 }
 
 // 20 Verify ONE line/entry/row of the object using web crypto, returns true or false
@@ -511,15 +646,17 @@ async function verifyByLine(objRow) {
         }
     }
 
-    const line = rebuiltRow(objRow);
+    const line = rebuiltRecord(objRow);
 
     if (!publicKey) {
         publicKey = await importRsaKey(pem);
     }
 
-    const signature = str2ab(objRow._signature);
+    const signature = base64ToArrayBuffer(line.signature);
+    console.log(jsonCompact(line.data));
 
-    const encodedData = str2ab(line);
+    const encodedData = str2ab(jsonCompact(line.data));
+    debugger;
 
     // Verify the signature using the public key
     const verifyResult = await window.crypto.subtle.verify(
@@ -670,4 +807,3 @@ input.addEventListener("change", async () => {
     const tables = getTablesList();
     displayTables(tables);
 });
-//
