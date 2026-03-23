@@ -10,11 +10,12 @@ const exportBtn = document.querySelector("#exportBtn");
 const verifCard = document.querySelector("#verify");
 const verifyBtn = document.querySelector("#verifyBtn");
 const paginationUl = document.querySelector(".pagination");
+let tableName;
 
 //crypto verif functions
 
 //convert string to ArrayBuffer character by character. Necessary to import the public key
-function str2ab(str) {
+function str2ab(str = "") {
     const buf = new ArrayBuffer(str.length);
     const bufView = new Uint8Array(buf);
     for (let i = 0, strLen = str.length; i < strLen; i++) {
@@ -35,6 +36,33 @@ function base64ToArrayBuffer(base64) {
     }
 
     return bytes.buffer;
+}
+
+// licences
+async function getLicenses(sigPair) {
+    const licenses = [];
+
+    for (const pair of sigPair) {
+        if (pair.name.startsWith("archive/licenses/")) {
+            const text = await pair.doc.text();
+            const parsed = JSON.parse(text);
+            licenses.push(parsed);
+        }
+    }
+
+    return licenses;
+}
+
+//
+async function licenseToKeyMapping(sigPair) {
+    const licenses = await getLicenses(sigPair);
+
+    let uuidMap = [];
+    licenses.forEach((l) => {
+        uuidMap.push({ id: l.uuid, pkey: l.signature_public_key });
+    });
+
+    return uuidMap;
 }
 
 //import an existing public key (Ed25519) in PEM format to verify the signature
@@ -101,6 +129,7 @@ async function pairingSig(zipFile) {
     }
 
     await reader.close();
+
     return sigPairs;
 }
 
@@ -159,55 +188,6 @@ function displayTables(tables) {
         option.textContent = table;
         // Adds the generated option to the select
         select.appendChild(option);
-    });
-
-    let tableName;
-    // Adds an EL to display the selected table
-    select.addEventListener("change", () => {
-        tableName = select.value;
-
-        if (!tableName) return;
-
-        if (tableName === "fullFacture") {
-            while (verifCard.firstChild) {
-                verifCard.removeChild(verifCard.firstChild);
-            }
-
-            const alert = document.createElement("div");
-            alert.className = "alert alert-info text-center";
-            alert.textContent =
-                "Pas d'affichage pour le moment. Cliquez sur le bouton Exporter pour télécharger la vue complète des factures en CSV.";
-            verifCard.appendChild(alert);
-        } else {
-            verifCard.innerHTML = "";
-            displayDataPag(tableName);
-
-            if (tableName.startsWith("facture_")) {
-                verifyBtn.classList.add("disabled");
-                document.querySelectorAll(".signature-status").forEach((cell) => {
-                    cell.innerHTML = `&#9203; Pas de signature`;
-                });
-            } else {
-                verifyBtn.classList.remove("disabled");
-            }
-        }
-    });
-
-    // Adds an EL on the export btn to export the selected table as csv
-    exportBtn.addEventListener("click", () => {
-        // Facture export gathers data from facture table and its child tables so it has a specific export function
-        if (tableName === "fullFacture") {
-            exportFactureCSV();
-            return;
-        } else {
-            // For other tables, export is standard
-            genericExport(tableName);
-        }
-    });
-
-    //Adds EL on the verify btn, sends the api call
-    verifyBtn.addEventListener("click", () => {
-        saslogVerify(tableName);
     });
 }
 
@@ -355,8 +335,6 @@ async function updateTableDisplay(tableName, data) {
     const obj = rebuiltJson(tableName);
     const cryptoVerif = await Promise.all(obj.map((row) => verifyByLine(row)));
 
-    console.log(cryptoVerif);
-
     const rows = document.querySelectorAll(`tr[data-signature]`);
 
     let apiVerif;
@@ -379,26 +357,8 @@ function iconVerif(cryptoVerif, apiVerif) {
 
     return iconCrypto + iconApi;
 }
+
 // 8 Renders a card showing the verify() output of the file
-// async function displayVerif(file) {
-//   const { dbFile, sigFile, keyFile } = await getFile(file);
-//   const encodedData = await dbFile.arrayBuffer();
-//   const signature = await sigFile.arrayBuffer();
-//   const pem = await keyFile.text();
-
-//   const vSig = await verifySig(pem, signature, encodedData);
-
-//   if (vSig) {
-//     verifCard.className = "card bg-success-subtle text-success-emphasis mt-3";
-//     verifCard.querySelector(".card-body").textContent =
-//       "Signature vérifiée : le fichier n'a pas été modifié depuis sa signature.";
-//   } else {
-//     verifCard.className = "card bg-danger-subtle text-danger-emphasis mt-3";
-//     verifCard.querySelector(".card-body").textContent =
-//       "Signature non vérifiée : le fichier a été modifié depuis sa signature.";
-//   }
-//   return vSig;
-// }
 
 // 8' Same as 8 but works with the sigPairs array
 async function displayVerifArray(file) {
@@ -431,7 +391,7 @@ async function displayVerifArray(file) {
     }
 
     // For each object in the array, verifies if a signature exists
-    sigPairs.forEach(async (pair) => {
+    for (const pair of sigPairs) {
         if (pair.sig) {
             // If it does, gets the signature and the document as array buffers
             const signature = await pair.sig.arrayBuffer();
@@ -448,7 +408,8 @@ async function displayVerifArray(file) {
                 f.filenames.push(pair.name);
             }
         }
-    });
+    }
+
     // Displays the results in a card with the number of fails and the (failed) file names
     verifCard.innerHTML = "";
     verifCard.className = "card my-3 bg-info-subtle text-center text-info-emphasis";
@@ -534,34 +495,8 @@ function rebuiltJson(tableName) {
 
             output.push(data);
         }
-        console.log(output);
 
         return output;
-        // let factureObj = factures.values.map((line) => {
-        //     const obj = {};
-        //     facture.columns.forEach((col, i) => {
-        //         obj[col] = line[i];
-        //     });
-        //     return obj;
-        // });
-
-        // const articlesObj = articles.values.map((line) => {
-        //     const obj = {};
-
-        //     articles.columns.forEach((col, i) => {
-        //         obj[col] = line[i];
-        //     });
-        //     return obj;
-        // });
-
-        // const reglementsObj = reglements.values.map((line) => {
-        //     const obj = {};
-
-        //     reglements.columns.forEach((col, i) => {
-        //         obj[col] = line[i];
-        //     });
-        //     return obj;
-        // });
     } else {
         const { columns, rows } = getTableData(tableName);
 
@@ -627,36 +562,31 @@ function rebuiltRecord(objRow) {
 
 // 25
 function jsonCompact(obj) {
-    // https://stackoverflow.com/a/16168003
+    //
     return stringify(obj);
 }
 
 // 20 Verify ONE line/entry/row of the object using web crypto, returns true or false
 async function verifyByLine(objRow) {
-    // 3 Uint8Array
-    // 4 window.crypto.subtle.verify
     const file = input.files[0];
-
     const sigPairs = await pairingSig(file);
-    let pem;
 
-    for (const pair of sigPairs) {
-        if (pair.name.endsWith(".pem")) {
-            pem = await pair.doc.text();
-        }
-    }
+    const uuidMap = await licenseToKeyMapping(sigPairs);
+    let pem;
 
     const line = rebuiltRecord(objRow);
 
-    if (!publicKey) {
-        publicKey = await importRsaKey(pem);
+    for (const obj of uuidMap) {
+        if (line.data.sas_license_id === obj.id) {
+            pem = obj.pkey;
+        }
     }
 
+    publicKey = await importRsaKey(pem);
+
     const signature = base64ToArrayBuffer(line.signature);
-    console.log(jsonCompact(line.data));
 
     const encodedData = str2ab(jsonCompact(line.data));
-    debugger;
 
     // Verify the signature using the public key
     const verifyResult = await window.crypto.subtle.verify(
@@ -691,12 +621,12 @@ function genericExport(tableName) {
 //14 Export facture as a csv file
 function exportFactureCSV() {
     // make 3 queries to facture, facture_articles and facture_reglements, save the results to create one full facture view and export
-    const facture = db.exec(`SELECT id AS "facture.id", total_ttc FROM facture;`);
+    const facture = db.exec(`SELECT _id, total_ttc FROM facture;`);
     const articles = db.exec(
-        `SELECT parent, libelle, quantite, prix_unitaire, total_ht, taux_tva FROM facture_articles ORDER BY parent ASC;`
+        `SELECT _parent, libelle, quantite, prix_unitaire, total_ht, taux_tva FROM facture_articles ORDER BY _parent ASC;`
     );
     const reglements = db.exec(
-        `SELECT parent, montant, mode_de_paiement, horodatage FROM facture_reglements ORDER BY parent ASC;`
+        `SELECT _parent, montant, mode_de_paiement, horodatage FROM facture_reglements ORDER BY _parent ASC;`
     );
 
     // create an array of objects with the data from the 3 tables, each object represents a facture with its articles and reglements
@@ -705,10 +635,10 @@ function exportFactureCSV() {
 
     let fullFacture = [];
 
-    facture[0].values.forEach((f) => {
+    facture[0]?.values.forEach((f) => {
         const fObj = { facture_id: f[0], prix: f[1], articles: [], reglements: [] };
 
-        articles[0].values.forEach((a) => {
+        articles[0]?.values.forEach((a) => {
             if (a[0] === fObj.facture_id) {
                 fObj.articles.push({
                     libelle: a[1],
@@ -720,7 +650,7 @@ function exportFactureCSV() {
             }
         });
 
-        reglements[0].values.forEach((r) => {
+        reglements[0]?.values.forEach((r) => {
             if (r[0] === fObj.facture_id) {
                 fObj.reglements.push({
                     montant: r[1],
@@ -735,34 +665,35 @@ function exportFactureCSV() {
 
     // Writes the full facture content as a delimited flat file
     let csvContent =
+        // "data:text/csv;charset=utf-8," +
+        // [
+        //     "facture.id",
+        //     "facture.total_ttc",
+        //     "facture_articles.libelle",
+        //     "facture_articles.quantite",
+        //     "facture_articles.prix_unitaire",
+        //     "facture_articles.total_ht",
+        //     "facture_articles.taux_tva",
+        //     "facture_reglements.montant",
+        //     "facture_reglements.mode_de_paiement",
+        //     "facture_reglements.horodatage",
+        // ].join(",") +
+        // "\n";
         "data:text/csv;charset=utf-8," +
         [
-            "facture.id",
-            "facture.total_ttc",
-            "facture_articles.libelle",
-            "facture_articles.quantite",
-            "facture_articles.prix_unitaire",
-            "facture_articles.total_ht",
-            "facture_articles.taux_tva",
-            "facture_reglements.montant",
-            "facture_reglements.mode_de_paiement",
-            "facture_reglements.horodatage",
+            "ID Facture",
+            "Total TTC",
+            "Article",
+            "Quantité",
+            "Prix Unitaire",
+            "Total HT",
+            "TVA",
+            "Règlement",
+            "Mode de Paiement",
+            "Horodatage",
         ].join(",") +
         "\n";
-    // "data:text/csv;charset=utf-8," +
-    // [
-    //   "ID Facture",
-    //   "Total TTC",
-    //   "Article",
-    //   "Quantité",
-    //   "Prix Unitaire",
-    //   "Total HT",
-    //   "TVA",
-    //   "Règlement",
-    //   "Mode de Paiement",
-    //   "Horodatage",
-    // ].join(",") +
-    // "\n";
+
     fullFacture.forEach((f) => {
         csvContent += `${f.facture_id}, ${f.prix},,,,,,,\n`;
         f.articles.forEach((a) => {
@@ -806,4 +737,49 @@ input.addEventListener("change", async () => {
     // Gets the list of table names from the db, sends the result to the display table function (create the select options)
     const tables = getTablesList();
     displayTables(tables);
+});
+
+select.addEventListener("change", () => {
+    tableName = select.value;
+
+    if (!tableName) return;
+
+    if (tableName === "fullFacture") {
+        while (verifCard.firstChild) {
+            verifCard.removeChild(verifCard.firstChild);
+        }
+        verifyBtn.classList.add("d-none");
+        const alert = document.createElement("div");
+        alert.className = "alert alert-secondary text-center mb-0";
+        alert.textContent = "Cliquez sur le bouton Exporter pour télécharger la vue complète des factures en CSV.";
+        verifCard.appendChild(alert);
+    } else {
+        verifCard.innerHTML = "";
+        verifyBtn.classList.remove("d-none");
+        displayDataPag(tableName);
+
+        if (tableName.startsWith("facture_")) {
+            verifyBtn.classList.add("disabled");
+            document.querySelectorAll(".signature-status").forEach((cell) => {
+                cell.innerHTML = `&#9203; Pas de signature`;
+            });
+        } else {
+            verifyBtn.classList.remove("disabled");
+        }
+    }
+});
+
+verifyBtn.addEventListener("click", () => {
+    saslogVerify(tableName);
+});
+
+exportBtn.addEventListener("click", () => {
+    // Facture export gathers data from facture table and its child tables so it has a specific export function
+    if (tableName === "fullFacture") {
+        exportFactureCSV();
+        return;
+    } else {
+        // For other tables, export is standard
+        genericExport(tableName);
+    }
 });
