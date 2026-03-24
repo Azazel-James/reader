@@ -1,5 +1,6 @@
 import "zip.js";
 import stringify from "https://esm.sh/safe-stable-stringify";
+
 const SQL = await initSqlJs({
     locateFile: (file) => `https://sql.js.org/dist/${file}`,
 });
@@ -14,7 +15,7 @@ let tableName;
 
 //crypto verif functions
 
-//convert string to ArrayBuffer character by character. Necessary to import the public key
+//convert string to ArrayBuffer. Necessary to import the public key
 function str2ab(str = "") {
     const buf = new ArrayBuffer(str.length);
     const bufView = new Uint8Array(buf);
@@ -24,7 +25,7 @@ function str2ab(str = "") {
     return buf;
 }
 
-//
+//convert base 64 to ab. Used for the signature in verify()
 function base64ToArrayBuffer(base64) {
     const binaryString = atob(base64);
 
@@ -38,7 +39,7 @@ function base64ToArrayBuffer(base64) {
     return bytes.buffer;
 }
 
-// licences
+//extract the licenses from the other documents of the zip file
 async function getLicenses(sigPair) {
     const licenses = [];
 
@@ -53,7 +54,7 @@ async function getLicenses(sigPair) {
     return licenses;
 }
 
-//
+//extract and pair the uuid and public key from the license files. Used to choose the right key for verify()
 async function licenseToKeyMapping(sigPair) {
     const licenses = await getLicenses(sigPair);
 
@@ -65,7 +66,7 @@ async function licenseToKeyMapping(sigPair) {
     return uuidMap;
 }
 
-//import an existing public key (Ed25519) in PEM format to verify the signature
+//import an existing public key in PEM format (Ed25519). Used in verify()
 function importRsaKey(pem) {
     // fetch the part of the PEM string between header and footer
     const pemHeader = "-----BEGIN PUBLIC KEY-----";
@@ -101,8 +102,171 @@ async function verifySig(pem, signature, encodedData) {
     return verifyResult;
 }
 
-//page rendering functions
+// 25 Stringify a json file in a compact and stable way. Makes sure the same result is always obtained with the same data
+function jsonCompact(obj) {
+    //
+    return stringify(obj);
+}
 
+// 20 Checks ONE line/entry/row of the object using web crypto, returns true or false
+async function verifyByLine(objRow) {
+    const file = input.files[0];
+    const sigPairs = await pairingSig(file);
+
+    const uuidMap = await licenseToKeyMapping(sigPairs);
+    let pem;
+
+    const line = rebuiltRecord(objRow);
+
+    for (const obj of uuidMap) {
+        if (line.data.sas_license_id === obj.id) {
+            pem = obj.pkey;
+        }
+    }
+
+    publicKey = await importRsaKey(pem);
+
+    const signature = base64ToArrayBuffer(line.signature);
+
+    const encodedData = str2ab(jsonCompact(line.data));
+
+    // Verify the signature using the public key
+    const verifyResult = await window.crypto.subtle.verify(
+        {
+            name: "Ed25519",
+        },
+        publicKey,
+        signature,
+        encodedData
+    );
+
+    return verifyResult;
+}
+
+//JSON format rebuild function for crypto
+
+// 18 Build a json from a db table
+function rebuiltJson(tableName) {
+    if (tableName === "facture") {
+        const facturesStmt = db.prepare(`SELECT * FROM facture;`);
+        const articlesStmt = db.prepare(`SELECT * FROM facture_articles;`);
+        const reglementsStmt = db.prepare(`SELECT * FROM facture_reglements;`);
+
+        const factures = [];
+        while (facturesStmt.step()) {
+            factures.push(facturesStmt.getAsObject());
+        }
+
+        const articles = [];
+        while (articlesStmt.step()) {
+            articles.push(articlesStmt.getAsObject());
+        }
+
+        const reglements = [];
+        while (reglementsStmt.step()) {
+            reglements.push(reglementsStmt.getAsObject());
+        }
+
+        const output = [];
+        for (const fac of factures) {
+            let data = { ...fac };
+            fac.articles = [];
+
+            for (const itm of articles) {
+                if (itm._parent === fac._id) {
+                    fac.articles.push(
+                        Object.fromEntries(
+                            Object.entries(itm)
+                                .filter(([key]) => key !== "_id" && key !== "_parent")
+                                .sort()
+                        )
+                    );
+                }
+            }
+
+            fac.reglements = [];
+            for (const reg of reglements) {
+                if (reg._parent === fac._id) {
+                    fac.reglements.push(
+                        Object.fromEntries(
+                            Object.entries(reg)
+                                .filter(([key]) => key !== "_id" && key !== "_parent")
+                                .sort()
+                        )
+                    );
+                }
+            }
+
+            data = { ...fac };
+
+            output.push(data);
+        }
+
+        return output;
+    } else {
+        const { columns, rows } = getTableData(tableName);
+
+        // 1 object
+        let lines = rows.map((line) => {
+            const obj = {};
+
+            columns.forEach((col, i) => {
+                obj[col] = line[i];
+            });
+            return obj;
+        });
+        return lines;
+    }
+}
+
+// 19 Returns an object for the sas_data (works for ONE entry/row/line of the json file)
+function rebuiltSasData(objRow) {
+    //
+    return Object.keys(objRow)
+        .filter((key) => key !== "_id" && key !== "_signature" && !key.startsWith("meta_"))
+        .sort()
+        .reduce((obj, key) => {
+            obj[key] = objRow[key];
+            return obj;
+        }, {});
+}
+
+//22 Get the meta data used to rebuild the Data object (one line)
+function getMeta(objRow) {
+    return Object.keys(objRow)
+        .filter((key) => key.startsWith("meta_"))
+        .sort()
+        .reduce((obj, key) => {
+            const cleanKey = key.replace("meta_", "");
+            obj[cleanKey] = objRow[key];
+            if (cleanKey == "sas_sequence_id") {
+                obj[cleanKey] = +obj[cleanKey];
+            }
+            return obj;
+        }, {});
+}
+
+// 23 Returns an object with all the data of the record, meta + sas data (one line)
+function rebuiltData(objRow) {
+    const { previous_signature, ...meta } = getMeta(objRow);
+    const sas_data = rebuiltSasData(objRow);
+
+    return {
+        previous_signature: previous_signature,
+        sas_data,
+        ...meta,
+    };
+}
+
+// 24 Returns an object with the full data and the signature of the record entry (one line)
+function rebuiltRecord(objRow) {
+    return {
+        data: rebuiltData(objRow),
+        signature: objRow._signature,
+    };
+}
+
+//document extracting function
 // 1' Extract each file and pairs signature files with their corresponding document, returns an array of objects {doc, name, sig}
 async function pairingSig(zipFile) {
     // Create a zip reader to read the zip file and get the files that are in it
@@ -132,6 +296,8 @@ async function pairingSig(zipFile) {
 
     return sigPairs;
 }
+
+//database functions
 
 // 2 Load the database from the sqlite file
 async function loadDB(sqliteFile) {
@@ -164,6 +330,8 @@ function getTableData(tableName) {
         rows: data[0].values,
     };
 }
+
+//page rendering functions
 
 // 5 Renders a table with the data from a selected db table
 function displayTables(tables) {
@@ -437,168 +605,6 @@ async function saslogVerify(tableName) {
         .catch((error) => {
             console.error("Erreur lors de la vérification :", error);
         });
-}
-
-// 18 Build a json from a db table
-function rebuiltJson(tableName) {
-    if (tableName === "facture") {
-        const facturesStmt = db.prepare(`SELECT * FROM facture;`);
-        const articlesStmt = db.prepare(`SELECT * FROM facture_articles;`);
-        const reglementsStmt = db.prepare(`SELECT * FROM facture_reglements;`);
-
-        const factures = [];
-        while (facturesStmt.step()) {
-            factures.push(facturesStmt.getAsObject());
-        }
-
-        const articles = [];
-        while (articlesStmt.step()) {
-            articles.push(articlesStmt.getAsObject());
-        }
-
-        const reglements = [];
-        while (reglementsStmt.step()) {
-            reglements.push(reglementsStmt.getAsObject());
-        }
-
-        const output = [];
-        for (const fac of factures) {
-            let data = { ...fac };
-            fac.articles = [];
-
-            for (const itm of articles) {
-                if (itm._parent === fac._id) {
-                    fac.articles.push(
-                        Object.fromEntries(
-                            Object.entries(itm)
-                                .filter(([key]) => key !== "_id" && key !== "_parent")
-                                .sort()
-                        )
-                    );
-                }
-            }
-
-            fac.reglements = [];
-            for (const reg of reglements) {
-                if (reg._parent === fac._id) {
-                    fac.reglements.push(
-                        Object.fromEntries(
-                            Object.entries(reg)
-                                .filter(([key]) => key !== "_id" && key !== "_parent")
-                                .sort()
-                        )
-                    );
-                }
-            }
-
-            data = { ...fac };
-
-            output.push(data);
-        }
-
-        return output;
-    } else {
-        const { columns, rows } = getTableData(tableName);
-
-        // 1 object
-        let lines = rows.map((line) => {
-            const obj = {};
-
-            columns.forEach((col, i) => {
-                obj[col] = line[i];
-            });
-            return obj;
-        });
-        return lines;
-    }
-}
-
-// 19 Returns an object for the sas_data (works for ONE entry/row/line of the json file)
-function rebuiltSasData(objRow) {
-    //
-    return Object.keys(objRow)
-        .filter((key) => key !== "_id" && key !== "_signature" && !key.startsWith("meta_"))
-        .sort()
-        .reduce((obj, key) => {
-            obj[key] = objRow[key];
-            return obj;
-        }, {});
-}
-
-//22
-function getMeta(objRow) {
-    return Object.keys(objRow)
-        .filter((key) => key.startsWith("meta_"))
-        .sort()
-        .reduce((obj, key) => {
-            const cleanKey = key.replace("meta_", "");
-            obj[cleanKey] = objRow[key];
-            if (cleanKey == "sas_sequence_id") {
-                obj[cleanKey] = +obj[cleanKey];
-            }
-            return obj;
-        }, {});
-}
-
-// 23
-function rebuiltData(objRow) {
-    const { previous_signature, ...meta } = getMeta(objRow);
-    const sas_data = rebuiltSasData(objRow);
-
-    return {
-        previous_signature: previous_signature,
-        sas_data,
-        ...meta,
-    };
-}
-
-// 24
-function rebuiltRecord(objRow) {
-    return {
-        data: rebuiltData(objRow),
-        signature: objRow._signature,
-    };
-}
-
-// 25
-function jsonCompact(obj) {
-    //
-    return stringify(obj);
-}
-
-// 20 Verify ONE line/entry/row of the object using web crypto, returns true or false
-async function verifyByLine(objRow) {
-    const file = input.files[0];
-    const sigPairs = await pairingSig(file);
-
-    const uuidMap = await licenseToKeyMapping(sigPairs);
-    let pem;
-
-    const line = rebuiltRecord(objRow);
-
-    for (const obj of uuidMap) {
-        if (line.data.sas_license_id === obj.id) {
-            pem = obj.pkey;
-        }
-    }
-
-    publicKey = await importRsaKey(pem);
-
-    const signature = base64ToArrayBuffer(line.signature);
-
-    const encodedData = str2ab(jsonCompact(line.data));
-
-    // Verify the signature using the public key
-    const verifyResult = await window.crypto.subtle.verify(
-        {
-            name: "Ed25519",
-        },
-        publicKey,
-        signature,
-        encodedData
-    );
-
-    return verifyResult;
 }
 
 // 12 Export a table as a csv file, table = select option
