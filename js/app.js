@@ -1,5 +1,5 @@
 import "zip.js";
-import stringify from "https://esm.sh/safe-stable-stringify";
+import stringify from "./lib/safe-stable-stringify.mjs";
 
 const SQL = await initSqlJs({
     locateFile: (file) => `https://sql.js.org/dist/${file}`,
@@ -221,29 +221,36 @@ function rebuiltJson(tableName) {
 
 // 19 Returns an object for the sas_data (works for ONE entry/row/line of the json file)
 function rebuiltSasData(objRow) {
-    //
-    return Object.keys(objRow)
+    const sas_data = {};
+
+    const keys = Object.keys(objRow)
         .filter((key) => key !== "_id" && key !== "_signature" && !key.startsWith("meta_"))
-        .sort()
-        .reduce((obj, key) => {
-            obj[key] = objRow[key];
-            return obj;
-        }, {});
+        .sort();
+
+    for (const key of keys) {
+        sas_data[key] = objRow[key];
+    }
+    return sas_data;
 }
 
 //22 Get the meta data used to rebuild the Data object (one line)
 function getMeta(objRow) {
-    return Object.keys(objRow)
+    const meta = {};
+
+    const keys = Object.keys(objRow)
         .filter((key) => key.startsWith("meta_"))
-        .sort()
-        .reduce((obj, key) => {
-            const cleanKey = key.replace("meta_", "");
-            obj[cleanKey] = objRow[key];
-            if (cleanKey == "sas_sequence_id") {
-                obj[cleanKey] = +obj[cleanKey];
-            }
-            return obj;
-        }, {});
+        .sort();
+
+    for (const key of keys) {
+        const cleanKey = key.replace("meta_", "");
+
+        if (cleanKey === "sas_sequence_id") {
+            meta[cleanKey] = +objRow[key];
+        } else {
+            meta[cleanKey] = objRow[key];
+        }
+    }
+    return meta;
 }
 
 // 23 Returns an object with all the data of the record, meta + sas data (one line)
