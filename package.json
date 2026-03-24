@@ -1,6 +1,8 @@
 {
-  "dependencies": {
-    "@zip.js/zip.js": "^2.8.22",
-    "sql.js": "^1.14.0"
-  }
+    "dependencies": {
+        "@zip.js/zip.js": "^2.8.22",
+        "bootstrap": "^5.3.8",
+        "sql.js": "^1.14.0",
+        "safe-stable-stringify": "^2.5.0"
+    }
 }
