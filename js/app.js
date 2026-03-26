@@ -12,40 +12,20 @@ const verifCard = document.querySelector("#verify");
 const verifyBtn = document.querySelector("#verifyBtn");
 const paginationUl = document.querySelector(".pagination");
 let tableName;
+let paginationClickHandler = null;
 
 //crypto verif functions
-
-//convert string to ArrayBuffer. Necessary to import the public key
-function str2ab(str = "") {
-    const buf = new ArrayBuffer(str.length);
-    const bufView = new Uint8Array(buf);
-    for (let i = 0, strLen = str.length; i < strLen; i++) {
-        bufView[i] = str.charCodeAt(i);
-    }
-    return buf;
-}
 
 function utf8ToArrayBuffer(str) {
     const enc = new TextEncoder();
     return enc.encode(str).buffer;
 }
-//convert base 64 to ab. Used for the signature in verify()
-function base64ToAB(base64) {
-    const binaryString = atob(base64);
 
-    const length = binaryString.length;
-    const bytes = new Uint8Array(length);
-
-    for (let i = 0; i < length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-
-    return bytes.buffer;
-}
-
+// Convert base64 to ArrayBuffer
 function base64ToArrayBuffer(b64) {
     return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
 }
+
 //extract the licenses from the other documents of the zip file
 async function getLicenses(sigPair) {
     const licenses = [];
@@ -64,12 +44,10 @@ async function getLicenses(sigPair) {
 //extract and pair the uuid and public key from the license files. Used to choose the right key for verify()
 async function licenseToKeyMapping(sigPair) {
     const licenses = await getLicenses(sigPair);
-
-    let uuidMap = [];
+    const uuidMap = {};
     licenses.forEach((l) => {
-        uuidMap.push({ id: l.uuid, pkey: l.signature_public_key });
+        uuidMap[l.uuid] = l.signature_public_key;
     });
-
     return uuidMap;
 }
 
@@ -110,25 +88,18 @@ async function verifySig(pem, signature, encodedData) {
 
 // 25 Stringify a json file in a compact and stable way. Makes sure the same result is always obtained with the same data
 function jsonCompact(obj) {
-    //
+    //Uses safe-stable-stringify library
     return stringify(obj);
 }
 
 // 20 Checks ONE line/entry/row of the object using web crypto, returns true or false
-async function verifyByLine(objRow) {
+async function verifyByLine(objRow, uuidMapCache) {
     const file = input.files[0];
     const sigPairs = await pairingSig(file);
-
-    const uuidMap = await licenseToKeyMapping(sigPairs);
-    let pem;
+    const uuidMap = uuidMapCache || (await licenseToKeyMapping(sigPairs));
 
     const line = rebuiltRecord(objRow);
-
-    for (const obj of uuidMap) {
-        if (line.data.sas_license_id === obj.id) {
-            pem = obj.pkey;
-        }
-    }
+    const pem = uuidMap[line.data.sas_license_id];
 
     publicKey = await importRsaKey(pem);
 
@@ -156,124 +127,69 @@ async function verifyByLine(objRow) {
 
 //JSON format rebuild function for crypto
 
+// Helper function to build facture/factureannulation structures
+function buildFactureStructure(mainTableName, articlesTableName, reglementsTableName) {
+    const facturesStmt = db.prepare(`SELECT * FROM ${mainTableName};`);
+    const articlesStmt = db.prepare(`SELECT * FROM ${articlesTableName};`);
+    const reglementsStmt = db.prepare(`SELECT * FROM ${reglementsTableName};`);
+
+    const factures = [];
+    while (facturesStmt.step()) {
+        factures.push(facturesStmt.getAsObject());
+    }
+
+    const articles = [];
+    while (articlesStmt.step()) {
+        articles.push(articlesStmt.getAsObject());
+    }
+
+    const reglements = [];
+    while (reglementsStmt.step()) {
+        reglements.push(reglementsStmt.getAsObject());
+    }
+
+    // Group by parent for faster lookup
+    const articlesByParent = new Map();
+    const reglementsByParent = new Map();
+
+    articles.forEach((itm) => {
+        if (!articlesByParent.has(itm._parent)) articlesByParent.set(itm._parent, []);
+        articlesByParent.get(itm._parent).push(itm);
+    });
+
+    reglements.forEach((reg) => {
+        if (!reglementsByParent.has(reg._parent)) reglementsByParent.set(reg._parent, []);
+        reglementsByParent.get(reg._parent).push(reg);
+    });
+
+    return factures.map((fac) => {
+        fac.articles = (articlesByParent.get(fac._id) || []).map((itm) =>
+            Object.fromEntries(
+                Object.entries(itm)
+                    .filter(([key]) => key !== "_id" && key !== "_parent")
+                    .sort()
+            )
+        );
+        fac.reglements = (reglementsByParent.get(fac._id) || []).map((reg) =>
+            Object.fromEntries(
+                Object.entries(reg)
+                    .filter(([key]) => key !== "_id" && key !== "_parent")
+                    .sort()
+            )
+        );
+        return fac;
+    });
+}
+
 // 18 Build a json from a db table
 function rebuiltJson(tableName) {
     if (tableName === "facture") {
-        const facturesStmt = db.prepare(`SELECT * FROM facture;`);
-        const articlesStmt = db.prepare(`SELECT * FROM facture_articles;`);
-        const reglementsStmt = db.prepare(`SELECT * FROM facture_reglements;`);
-
-        const factures = [];
-        while (facturesStmt.step()) {
-            factures.push(facturesStmt.getAsObject());
-        }
-
-        const articles = [];
-        while (articlesStmt.step()) {
-            articles.push(articlesStmt.getAsObject());
-        }
-
-        const reglements = [];
-        while (reglementsStmt.step()) {
-            reglements.push(reglementsStmt.getAsObject());
-        }
-
-        const output = [];
-        for (const fac of factures) {
-            let data = { ...fac };
-            fac.articles = [];
-
-            for (const itm of articles) {
-                if (itm._parent === fac._id) {
-                    fac.articles.push(
-                        Object.fromEntries(
-                            Object.entries(itm)
-                                .filter(([key]) => key !== "_id" && key !== "_parent")
-                                .sort()
-                        )
-                    );
-                }
-            }
-
-            fac.reglements = [];
-            for (const reg of reglements) {
-                if (reg._parent === fac._id) {
-                    fac.reglements.push(
-                        Object.fromEntries(
-                            Object.entries(reg)
-                                .filter(([key]) => key !== "_id" && key !== "_parent")
-                                .sort()
-                        )
-                    );
-                }
-            }
-
-            data = { ...fac };
-
-            output.push(data);
-        }
-
-        return output;
+        return buildFactureStructure("facture", "facture_articles", "facture_reglements");
     } else if (tableName === "factureannulation") {
-        const facturesStmt = db.prepare(`SELECT * FROM factureannulation;`);
-        const articlesStmt = db.prepare(`SELECT * FROM factureannulation_articles;`);
-        const reglementsStmt = db.prepare(`SELECT * FROM factureannulation_reglements;`);
-
-        const factures = [];
-        while (facturesStmt.step()) {
-            factures.push(facturesStmt.getAsObject());
-        }
-
-        const articles = [];
-        while (articlesStmt.step()) {
-            articles.push(articlesStmt.getAsObject());
-        }
-
-        const reglements = [];
-        while (reglementsStmt.step()) {
-            reglements.push(reglementsStmt.getAsObject());
-        }
-
-        const output = [];
-        for (const fac of factures) {
-            let data = { ...fac };
-            fac.articles = [];
-
-            for (const itm of articles) {
-                if (itm._parent === fac._id) {
-                    fac.articles.push(
-                        Object.fromEntries(
-                            Object.entries(itm)
-                                .filter(([key]) => key !== "_id" && key !== "_parent")
-                                .sort()
-                        )
-                    );
-                }
-            }
-
-            fac.reglements = [];
-            for (const reg of reglements) {
-                if (reg._parent === fac._id) {
-                    fac.reglements.push(
-                        Object.fromEntries(
-                            Object.entries(reg)
-                                .filter(([key]) => key !== "_id" && key !== "_parent")
-                                .sort()
-                        )
-                    );
-                }
-            }
-
-            data = { ...fac };
-
-            output.push(data);
-        }
-
-        return output;
+        return buildFactureStructure("factureannulation", "factureannulation_articles", "factureannulation_reglements");
     } else {
         const { columns, rows } = getTableData(tableName);
 
-        // 1 object
         let lines = rows.map((line) => {
             const obj = {};
 
@@ -289,34 +205,27 @@ function rebuiltJson(tableName) {
 // 19 Returns an object for the sas_data (works for ONE entry/row/line of the json file)
 function rebuiltSasData(objRow) {
     const sas_data = {};
-
-    const keys = Object.keys(objRow)
+    const sortedKeys = Object.keys(objRow)
         .filter((key) => key !== "_id" && key !== "_signature" && !key.startsWith("meta_"))
         .sort();
 
-    for (const key of keys) {
+    sortedKeys.forEach((key) => {
         sas_data[key] = objRow[key];
-    }
+    });
     return sas_data;
 }
 
 //22 Get the meta data used to rebuild the Data object (one line)
 function getMeta(objRow) {
     const meta = {};
-
-    const keys = Object.keys(objRow)
+    const sortedKeys = Object.keys(objRow)
         .filter((key) => key.startsWith("meta_"))
         .sort();
 
-    for (const key of keys) {
-        const cleanKey = key.replace("meta_", "");
-
-        if (cleanKey === "sas_sequence_id") {
-            meta[cleanKey] = +objRow[key];
-        } else {
-            meta[cleanKey] = objRow[key];
-        }
-    }
+    sortedKeys.forEach((key) => {
+        const cleanKey = key.slice(5); // More efficient than replace
+        meta[cleanKey] = cleanKey === "sas_sequence_id" ? +objRow[key] : objRow[key];
+    });
     return meta;
 }
 
@@ -347,31 +256,36 @@ function rebuiltRecord(objRow) {
 //document extracting function
 // 1' Extract each file and pairs signature files with their corresponding document, returns an array of objects {doc, name, sig}
 async function pairingSig(zipFile) {
-    // Create a zip reader to read the zip file and get the files that are in it
     const reader = new zip.ZipReader(new zip.BlobReader(zipFile));
     const entries = await reader.getEntries();
 
-    let sigPairs = [];
+    // Create a map of signature files for O(1) lookup
+    const sigMap = new Map();
+    const sigPairs = [];
 
+    // First pass: identify all signature files
+    entries.forEach((entry) => {
+        if (entry.filename.endsWith(".sig")) {
+            sigMap.set(entry.filename.slice(0, -4), entry); // Store without .sig
+        }
+    });
+
+    // Second pass: process non-sig files
     for (const entry of entries) {
-        // Checks if the file is not a signature file then creates an object with the file blob and its name then adds it to the sigPair array
         if (!entry.filename.endsWith(".sig")) {
-            sigPairs.push({ doc: await entry.getData(new zip.BlobWriter()) });
-            sigPairs[sigPairs.length - 1].name = entry.filename;
+            const pair = { doc: await entry.getData(new zip.BlobWriter()), name: entry.filename };
 
-            // Does a second for loop to find the corresponding signature file and adds it to the same object in the array
-            for (const entry2 of entries) {
-                // Checks if it's a .sig file and has the same name as the doc file (minus the .sig extension)
-                if (entry2.filename.endsWith(".sig") && entry2.filename.replace(".sig", "") === entry.filename) {
-                    // If true, adds the signature blob to the object
-                    sigPairs[sigPairs.length - 1].sig = await entry2.getData(new zip.BlobWriter());
-                }
+            // Check for corresponding signature file
+            const sigEntry = sigMap.get(entry.filename);
+            if (sigEntry) {
+                pair.sig = await sigEntry.getData(new zip.BlobWriter());
             }
+
+            sigPairs.push(pair);
         }
     }
 
     await reader.close();
-
     return sigPairs;
 }
 
@@ -385,13 +299,11 @@ async function loadDB(sqliteFile) {
 
 // 3 Get the name of the tables in the db
 function getTablesList() {
-    // Query to get the names of the tables in the db (minus sqlite internal tables), maps the result and returns an array with the names or an empty one
-    const tableList =
+    return (
         db
             .exec(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';`)[0]
-            ?.values.map((row) => row[0]) || [];
-
-    return tableList;
+            ?.values.map((row) => row[0]) || []
+    );
 }
 
 // 4 Get the data inside one table
@@ -413,112 +325,72 @@ function getTableData(tableName) {
 
 // 8 Renders a card showing the verify() output of the file
 async function displayVerifArray(file) {
-    // Gets the array of paired documents from the input file
     const sigPairs = await pairingSig(file);
-    let pem;
 
-    //verified
-    let v = { count: 0 };
-    //failed
-    let f = { count: 0, filenames: [] };
+    // Find pem file efficiently
+    const pemPair = sigPairs.find((pair) => pair.name.endsWith(".pem"));
+    const pem = pemPair ? await pemPair.doc.text() : null;
 
-    // Gets the pem file content for the public key (necessary to verify signature)
-    for (const pair of sigPairs) {
-        if (pair.name.endsWith(".pem")) {
-            pem = await pair.doc.text();
-        }
-    }
-
-    // If no pem file found, displays an alert and exits the function (avoid errors in the verify func)
+    // If no pem file found, displays an alert and exits the function
     if (!pem) {
         verifCard.className = "card my-3 bg-info-subtle text-center text-info-emphasis";
-
         const article = document.createElement("article");
         article.className = "card-body";
         article.textContent = `Clé publique introuvable.`;
         verifCard.appendChild(article);
-
         return;
     }
 
-    // For each object in the array, verifies if a signature exists
-    for (const pair of sigPairs) {
-        if (pair.sig) {
-            // If it does, gets the signature and the document as array buffers
-            const signature = await pair.sig.arrayBuffer();
-            const encodedData = await pair.doc.arrayBuffer();
+    // Verify all files with signatures in parallel
+    const verified = await Promise.all(
+        sigPairs.map(async (pair) => {
+            if (!pair.sig) return { valid: null, name: pair.name };
+            return {
+                valid: await verifySig(pem, await pair.sig.arrayBuffer(), await pair.doc.arrayBuffer()),
+                name: pair.name,
+            };
+        })
+    );
 
-            //Uses pem, signature and document to verify the file
-            const vSig = await verifySig(pem, signature, encodedData);
+    // Count failures
+    const failed = verified.filter((v) => v.valid === false);
 
-            // Updates the verified and failed counts and adds failed file names to the f object
-            if (vSig) {
-                v.count++;
-            } else {
-                f.count++;
-                f.filenames.push(pair.name);
-            }
-        }
-    }
-
-    // Displays the results in a card with the number of fails and the (failed) file names
+    // Display results
     verifCard.innerHTML = "";
     verifCard.className = "card my-3 bg-info-subtle text-center text-info-emphasis";
     const article = document.createElement("article");
     article.className = "card-body";
-    article.textContent = `${f.count} fichier(s) KO : ${f.filenames.join(", ")} .`;
+    article.textContent = `${failed.length} fichier(s) KO : ${failed.map((f) => f.name).join(", ")} .`;
     verifCard.appendChild(article);
 }
 
 // 5 Renders a table with the data from a selected db table
 function displayTables(tables) {
-    // Avoid stacking options on file change
-    select.innerHTML = "";
+    const options = [
+        { value: "", text: "-- Choisir une table --" },
+        { value: "fullFacture", text: "&#11088; Factures" },
+        { value: "fullFactureAnnul", text: "&#11088; Factures Annulation" },
+        ...tables.map((table) => ({ value: table, text: table })),
+    ];
 
-    // Adds an empty option at the top of the select.
-    const optionNull = document.createElement("option");
-    optionNull.textContent = "-- Choisir une table --";
-    select.appendChild(optionNull);
-
-    // Adds an option element for the full facture to the select. This option is not a distinct table in the db.
-    const facture = document.createElement("option");
-    facture.value = "fullFacture";
-    facture.innerHTML = "&#11088; Factures";
-    select.appendChild(facture);
-
-    // Adds an option element for the full facture to the select. This option is not a distinct table in the db.
-    const factureAnnul = document.createElement("option");
-    factureAnnul.value = "fullFactureAnnul";
-    factureAnnul.innerHTML = "&#11088; Factures Annulation";
-    select.appendChild(factureAnnul);
-
-    // Creates an option element for each table in the db
-    tables.forEach((table) => {
-        const option = document.createElement("option");
-        option.value = table;
-        option.textContent = table;
-        // Adds the generated option to the select
-        select.appendChild(option);
-    });
+    select.innerHTML = options.map((opt) => `<option value="${opt.value}">${opt.text}</option>`).join("");
 }
 
 // 13 Display table content with pagination, 500 lines per page, calls itself on page change
 function displayDataPag(tableName, page = 1, pageSize = 500) {
-    // HTML element where the table is displayed
     const article = document.querySelector("#tabStructure");
 
-    // Calculations to set the pagination and get the data for the current page
+    // Get total count efficiently
+    const countResult = db.exec(`SELECT COUNT(*) as cnt FROM "${tableName}";`);
+    const totalLines = countResult[0]?.values[0][0] || 0;
+    const totalPages = Math.ceil(totalLines / pageSize);
+
+    // Get data for current page
     const offset = (page - 1) * pageSize;
     const data = db.exec(`SELECT * FROM "${tableName}" LIMIT ${pageSize} OFFSET ${offset};`);
 
-    // Query to get the length of the table, used to calculate the # of pages for pagination. Set total lines to 0 if table is empty (avoid errors)
-    const totalLines = db.exec(`SELECT * FROM "${tableName}";`)[0]?.values.length || 0;
-    const totalPages = Math.ceil(totalLines / pageSize);
-
-    // Clears the article element before displaying a new table (on page change or table change). Avoids stacking tables
-    while (article.firstChild) {
-        article.removeChild(article.firstChild);
-    }
+    // Clears the article element before displaying a new table (on page change or table change)
+    article.innerHTML = "";
 
     // Adds a title with the table name (uppercased) on top of the displayed table
     const title = document.createElement("h4");
@@ -535,9 +407,6 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
         return;
     }
 
-    // Creates a responsive table with bootstrap classes, displays columns names in thead and values in tbody + a column for signature verifications
-
-    // Div wrapper to make table responsive
     const dataWrapper = document.createElement("div");
     dataWrapper.className = "table-responsive";
 
@@ -597,33 +466,34 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
     dataWrapper.appendChild(dataTable);
     article.appendChild(dataWrapper);
 
-    // Makes sure pagination is cleared
+    // Render pagination
     paginationUl.innerHTML = "";
 
-    // Creates a list item element for each page, adds class active to the current page
     for (let i = 1; i <= totalPages; i++) {
         const li = document.createElement("li");
         li.className = `page-item ${i === page ? "active" : ""}`;
 
-        // Creates an anchor element for each page
         const a = document.createElement("a");
         a.className = "page-link";
         a.textContent = i;
         a.href = "#";
+        a.dataset.page = i;
 
-        // Adds an EL to each anchor to display the corresponding page on click
-        a.addEventListener("click", (e) => {
-            //Avoids jumping to the top of the page
-            e.preventDefault();
-
-            // Calls the function to display the selected page
-            displayDataPag(tableName, i, pageSize);
-        });
-
-        // Adds the anchor to the list item, then adds the list item to the pagination
         li.appendChild(a);
         paginationUl.appendChild(li);
     }
+
+    // Single delegated event listener for all pagination links
+    if (paginationClickHandler) {
+        paginationUl.removeEventListener("click", paginationClickHandler);
+    }
+    paginationClickHandler = (e) => {
+        if (e.target.dataset.page) {
+            e.preventDefault();
+            displayDataPag(tableName, parseInt(e.target.dataset.page), pageSize);
+        }
+    };
+    paginationUl.addEventListener("click", paginationClickHandler);
 }
 
 // 15 Displays the counts for verification status
@@ -637,36 +507,30 @@ function countDisplay(data) {
     koSpan.innerHTML = `&#10060; ${data.missing.length} signature(s) manquante(s)`;
 
     verifCard.className = "card my-3 text-center";
-    verifCard.appendChild(okSpan);
-    verifCard.appendChild(koSpan);
+    verifCard.innerHTML = "";
+    verifCard.append(okSpan, koSpan);
 }
 
 // 17 Update the displayed table with the verification status for each line
 async function updateTableDisplay(tableName, data) {
     const obj = rebuiltJson(tableName);
-    const cryptoVerif = await Promise.all(obj.map((row) => verifyByLine(row)));
+    const file = input.files[0];
+    const sigPairs = await pairingSig(file);
+    const uuidMapCache = await licenseToKeyMapping(sigPairs);
 
+    const cryptoVerif = await Promise.all(obj.map((row) => verifyByLine(row, uuidMapCache)));
     const rows = document.querySelectorAll(`tr[data-signature]`);
-
-    let apiVerif;
-    let found = new Set(data.found);
+    const found = new Set(data.found);
 
     rows.forEach((row, i) => {
-        if (found.has(row.dataset.signature)) {
-            apiVerif = true;
-        } else {
-            apiVerif = false;
-        }
+        const apiVerif = found.has(row.dataset.signature);
         row.querySelector(".signature-status").innerHTML = iconVerif(cryptoVerif[i], apiVerif);
     });
 }
 
 // 21 Assign symbol to status verification (used in update table display)
 function iconVerif(cryptoVerif, apiVerif) {
-    const iconApi = apiVerif ? "&#9989;" : "&#10060;";
-    const iconCrypto = cryptoVerif ? "&#128274;" : "&#10060;";
-
-    return iconCrypto + iconApi;
+    return (cryptoVerif ? "&#128274;" : "&#10060;") + (apiVerif ? "&#9989;" : "&#10060;");
 }
 
 // 10 Send signatures to SAS to verify them. Calls update table fn if it gets an answer.
@@ -793,7 +657,7 @@ function exportFactureCSV(facture, articles, reglements) {
     }
 }
 
-// 7 Manages actions triggered by adding a file to the input
+// 7 Manage actions triggered by user
 input.addEventListener("change", async () => {
     // Gets the file from the input, exits if no file is selected (avoid errors)
     const file = input.files[0];
@@ -854,6 +718,7 @@ verifyBtn.addEventListener("click", () => {
 exportBtn.addEventListener("click", () => {
     // Facture export gathers data from facture table and its child tables so it has a specific export function
     if (tableName === "fullFacture") {
+        // Queries to set the export function for facture table
         const facture = db.exec(`SELECT _id, total_ttc FROM facture;`);
         const articles = db.exec(
             `SELECT _parent, libelle, quantite, prix_unitaire, total_ht, taux_tva FROM facture_articles ORDER BY _parent ASC;`
@@ -861,8 +726,11 @@ exportBtn.addEventListener("click", () => {
         const reglements = db.exec(
             `SELECT _parent, montant, mode_de_paiement, horodatage FROM facture_reglements ORDER BY _parent ASC;`
         );
+
+        //Download the csv file
         exportFactureCSV(facture, articles, reglements);
     } else if (tableName === "fullFactureAnnul") {
+        // Queries to set the export function for facture annulation table
         const facture = db.exec(`SELECT _id, total_ttc FROM factureannulation;`);
         const articles = db.exec(
             `SELECT _parent, libelle, quantite, prix_unitaire, total_ht, taux_tva FROM factureannulation_articles ORDER BY _parent ASC;`
@@ -870,6 +738,8 @@ exportBtn.addEventListener("click", () => {
         const reglements = db.exec(
             `SELECT _parent, montant, mode_de_paiement, horodatage FROM factureannulation_reglements ORDER BY _parent ASC;`
         );
+
+        //Download the csv file
         exportFactureCSV(facture, articles, reglements);
     } else {
         // For other tables, export is standard
