@@ -2,7 +2,14 @@
     "dependencies": {
         "@zip.js/zip.js": "^2.8.22",
         "bootstrap": "^5.3.8",
-        "sql.js": "^1.14.0",
-        "safe-stable-stringify": "^2.5.0"
+        "safe-stable-stringify": "^2.5.0",
+        "sql.js": "^1.14.0"
+    },
+    "devDependencies": {
+        "vite": "^8.0.3",
+        "vitest": "^4.1.2"
+    },
+    "scripts": {
+        "test": "vitest"
     }
 }

@@ -131,10 +131,13 @@ function verifyChain() {
 
     const tables = getTablesList();
     tables.forEach((table) => {
+        tableName = table;
         const obj = rebuiltJson(table);
         obj.forEach((row) => {
             const rec = rebuiltRecord(row);
-            fusion.push(rec);
+            if (rec.signature) {
+                fusion.push(rec);
+            }
         });
     });
 
@@ -159,8 +162,10 @@ function verifyChain() {
             return false;
         }
 
-        if (prevRow.data.sas_sequence_id >= row.data.sas_sequence_id) {
-            console.error("Sequence incoherent");
+        if (prevRow.data.sas_sequence_id + 1 !== row.data.sas_sequence_id) {
+            console.error(
+                `Sequence incoherent. Previous id : ${prevRow.data.sas_sequence_id} - Current id : ${row.data.sas_sequence_id}`
+            );
             return false;
         }
     }
