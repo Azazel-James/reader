@@ -125,6 +125,48 @@ async function verifyByLine(objRow, uuidMapCache) {
     return verifyResult;
 }
 
+// 26 Maps the signature and previous signature then verifies the chain is not broken
+function verifyChain() {
+    let fusion = [];
+
+    const tables = getTablesList();
+    tables.forEach((table) => {
+        const obj = rebuiltJson(table);
+        obj.forEach((row) => {
+            const rec = rebuiltRecord(row);
+            fusion.push(rec);
+        });
+    });
+
+    fusion.sort((a, b) => {
+        return a.data.sas_sequence_id - b.data.sas_sequence_id;
+    });
+
+    const signatureMap = new Map();
+    for (const row of fusion) {
+        signatureMap.set(row.signature, row);
+    }
+
+    for (const row of fusion) {
+        const prevSig = row.data.previous_signature;
+
+        if (prevSig === null || row.data.sas_sequence_id === 0) continue;
+
+        const prevRow = signatureMap.get(prevSig);
+
+        if (!prevRow) {
+            console.error("Missing previous signature", row);
+            return false;
+        }
+
+        if (prevRow.data.sas_sequence_id >= row.data.sas_sequence_id) {
+            console.error("Sequence incoherent");
+            return false;
+        }
+    }
+    return true;
+}
+
 //JSON format rebuild function for crypto
 
 // Helper function to build facture/factureannulation structures
@@ -355,12 +397,15 @@ async function displayVerifArray(file) {
     // Count failures
     const failed = verified.filter((v) => v.valid === false);
 
+    // Chain verify
+    const chainVerif = verifyChain();
+
     // Display results
     verifCard.innerHTML = "";
     verifCard.className = "card my-3 bg-info-subtle text-center text-info-emphasis";
     const article = document.createElement("article");
     article.className = "card-body";
-    article.textContent = `${failed.length} fichier(s) KO : ${failed.map((f) => f.name).join(", ")} .`;
+    article.innerHTML = `${failed.length} fichier(s) KO : ${failed.map((f) => f.name).join(", ")} . <br> ${chainVerif ? "&#128279; Chaînage cryptographique OK !" : "&#10060; Chaîne brisée !"}`;
     verifCard.appendChild(article);
 }
 
