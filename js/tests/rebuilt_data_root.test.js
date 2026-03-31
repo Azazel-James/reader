@@ -2,7 +2,7 @@ import { expect, describe, it } from "vitest";
 import { rebuiltData } from "./functions/rebuilt_data_root";
 
 describe("rebuiltData", () => {
-    it("should create an object with the metadata and sas_data with tableName root", () => {
+    it("should create an object with the metadata and sas_data with tableName = root", () => {
         const input = {
             _id: "aaa",
             _signature: "def",

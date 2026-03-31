@@ -66,7 +66,7 @@ function importRsaKey(pem) {
 let publicKey;
 //Verify the document signature and return true or false
 async function verifySig(pem, signature, encodedData) {
-    // Import the pk if not set yet
+    // Import the pk
     publicKey = await importRsaKey(pem);
 
     // Verify the signature using the public key
@@ -119,7 +119,6 @@ async function verifyByLine(objRow, uuidMapCache) {
 
     if (!verifyResult) {
         console.error("Signature mismatch", { pem, signature, encodedData, publicKey });
-        debugger;
     }
 
     return verifyResult;
