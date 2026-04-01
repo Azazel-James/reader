@@ -2,7 +2,7 @@ export async function getLicenses(sigPair) {
     const licenses = [];
 
     for (const pair of sigPair) {
-        if (pair.name.startsWith("archive/licenses/")) {
+        if (pair.name.startsWith("archive/licenses/") && pair.doc.size > 0) {
             const text = await pair.doc.text();
             const parsed = JSON.parse(text);
             licenses.push(parsed);
