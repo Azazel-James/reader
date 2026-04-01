@@ -5,6 +5,7 @@ const SQL = await initSqlJs({
     locateFile: (file) => `https://sql.js.org/dist/${file}`,
 });
 let db = "";
+const switchbox = document.querySelector("#systemSwitch");
 const input = document.querySelector("#zipFileInput");
 const select = document.querySelector("#tabSelect");
 const exportBtn = document.querySelector("#exportBtn");
@@ -12,6 +13,7 @@ const verifCard = document.querySelector("#verify");
 const verifyBtn = document.querySelector("#verifyBtn");
 const paginationUl = document.querySelector(".pagination");
 let tableName;
+let switchOn;
 let paginationClickHandler = null;
 
 //crypto verif functions
@@ -31,7 +33,7 @@ async function getLicenses(sigPair) {
     const licenses = [];
 
     for (const pair of sigPair) {
-        if (pair.name.startsWith("archive/licenses/")) {
+        if (pair.name.startsWith("archive/licenses/") && pair.doc.size > 0) {
             const text = await pair.doc.text();
             const parsed = JSON.parse(text);
             licenses.push(parsed);
@@ -96,10 +98,15 @@ function jsonCompact(obj) {
 async function verifyByLine(objRow, uuidMapCache) {
     const file = input.files[0];
     const sigPairs = await pairingSig(file);
+
     const uuidMap = uuidMapCache || (await licenseToKeyMapping(sigPairs));
 
     const line = rebuiltRecord(objRow);
+
     const pem = uuidMap[line.data.sas_license_id];
+    if (!pem) {
+        return;
+    }
 
     publicKey = await importRsaKey(pem);
 
@@ -280,6 +287,7 @@ function rebuiltData(objRow) {
     const { previous_signature, ...meta } = getMeta(objRow);
 
     let sas_data = rebuiltSasData(objRow);
+
     if (tableName === "root") {
         sas_data = "root";
     }
@@ -332,6 +340,7 @@ async function pairingSig(zipFile) {
     }
 
     await reader.close();
+
     return sigPairs;
 }
 
@@ -563,11 +572,17 @@ function countDisplay(data) {
 // 17 Update the displayed table with the verification status for each line
 async function updateTableDisplay(tableName, data) {
     const obj = rebuiltJson(tableName);
+    if (obj.length === 0) {
+        return;
+    }
+
     const file = input.files[0];
     const sigPairs = await pairingSig(file);
     const uuidMapCache = await licenseToKeyMapping(sigPairs);
 
     const cryptoVerif = await Promise.all(obj.map((row) => verifyByLine(row, uuidMapCache)));
+    console.log(cryptoVerif);
+
     const rows = document.querySelectorAll(`tr[data-signature]`);
     const found = new Set(data.found);
 
@@ -585,6 +600,9 @@ function iconVerif(cryptoVerif, apiVerif) {
 // 10 Send signatures to SAS to verify them. Calls update table fn if it gets an answer.
 async function saslogVerify(tableName) {
     const table = getTableData(tableName);
+    if (!table) {
+        return;
+    }
     const payload = table.rows.map((row) => row[1]);
 
     // Calls the API with the data array in the body, logs the response or errors
@@ -723,6 +741,7 @@ input.addEventListener("change", async () => {
     const sqliteFile = sigPairs.find((pair) => pair.name.endsWith(".sqlite")).doc;
 
     await loadDB(sqliteFile);
+    console.log("record db");
 
     // Gets the list of table names from the db, sends the result to the display table function (create the select options)
     const tables = getTablesList();
@@ -731,6 +750,7 @@ input.addEventListener("change", async () => {
 
 select.addEventListener("change", () => {
     tableName = select.value;
+    console.log(tableName);
 
     if (!tableName) return;
 
@@ -794,4 +814,28 @@ exportBtn.addEventListener("click", () => {
         // For other tables, export is standard
         genericExport(tableName);
     }
+});
+
+switchbox.addEventListener("change", async () => {
+    switchOn = switchbox.checked;
+    const file = input.files[0];
+    if (!file) return;
+
+    // Gets the array of paired documents from the input file
+    const sigPairs = await pairingSig(file);
+
+    if (switchOn === true) {
+        const sqliteFileS = sigPairs.find((pair) => pair.name.endsWith("system.sqlite")).doc;
+
+        await loadDB(sqliteFileS);
+        console.log("sys db");
+    } else {
+        const sqliteFile = sigPairs.find((pair) => pair.name.endsWith(".sqlite")).doc;
+
+        await loadDB(sqliteFile);
+        console.log("record db");
+    }
+
+    const tables = getTablesList();
+    displayTables(tables);
 });
