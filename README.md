@@ -6,10 +6,12 @@
     - Le site affiche le nombre et le nom des fichiers corrompus ainsi que la vérification du chaînage des signatures.
 2. Si l'archive contient un fichier sqlite, il est alors possible de choisir une table à afficher, à partir du selecteur (étape 2).
 
-3. Cliquer sur le bouton "Exporter" pour télécharger la table affichée en format csv.
+3. Activer l'interrupteur pour passer de la base de données principale à la base de données système.
+
+4. Cliquer sur le bouton "Exporter" pour télécharger la table affichée en format csv.
     - Dans le selecteur, les options précédées d'une étoile (⭐) renvoie à un export multitable qui permet de voir des factures complètes avec les articles et règlements qui leur sont associés.
 
-4. Cliquer sur le bouton "Vérifier" pour lancer la vérification des enregistrements de la table sélectionnée.
+5. Cliquer sur le bouton "Vérifier" pour lancer la vérification des enregistrements de la table sélectionnée.
     - La fonction vérifie que les enregistrements n'ont pas été modifiés depuis leur signature et que les signatures sont présentent dans le SAS.
 
 ### Affichage des résultats
