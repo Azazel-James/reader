@@ -673,6 +673,9 @@ function exportFactureCSV(facture, articles, reglements) {
         fullFacture.push(fObj);
     });
 
+    if (fullFacture.length === 0) {
+        throw new Error("Empty table");
+    }
     // Writes the full facture content as a delimited flat file
     let csvContent =
         // "data:text/csv;charset=utf-8," +
@@ -713,7 +716,7 @@ function exportFactureCSV(facture, articles, reglements) {
             csvContent += `${f.facture_id},,,,,,, ${r.montant}, ${r.mode_de_paiement}, ${r.horodatage}\n`;
         });
     });
-
+    console.log(csvContent);
     // Turns the csv content into an encoded URI
     const encodedUri = encodeURI(csvContent);
     // Sets the href to the encoded URI and download attribute file name to a default value for the export link/btn
@@ -789,6 +792,7 @@ exportBtn.addEventListener("click", () => {
     if (tableName === "fullFacture") {
         // Queries to set the export function for facture table
         const facture = db.exec(`SELECT _id, total_ttc FROM facture;`);
+
         const articles = db.exec(
             `SELECT _parent, libelle, quantite, prix_unitaire, total_ht, taux_tva FROM facture_articles ORDER BY _parent ASC;`
         );
@@ -800,16 +804,16 @@ exportBtn.addEventListener("click", () => {
         exportFactureCSV(facture, articles, reglements);
     } else if (tableName === "fullFactureAnnul") {
         // Queries to set the export function for facture annulation table
-        const facture = db.exec(`SELECT _id, total_ttc FROM factureannulation;`);
-        const articles = db.exec(
+        const factureA = db.exec(`SELECT _id, total_ttc FROM factureannulation;`);
+        const articlesA = db.exec(
             `SELECT _parent, libelle, quantite, prix_unitaire, total_ht, taux_tva FROM factureannulation_articles ORDER BY _parent ASC;`
         );
-        const reglements = db.exec(
+        const reglementsA = db.exec(
             `SELECT _parent, montant, mode_de_paiement, horodatage FROM factureannulation_reglements ORDER BY _parent ASC;`
         );
 
         //Download the csv file
-        exportFactureCSV(facture, articles, reglements);
+        exportFactureCSV(factureA, articlesA, reglementsA);
     } else {
         // For other tables, export is standard
         genericExport(tableName);

@@ -1,25 +1,16 @@
 import { expect, describe, it } from "vitest";
 import { rebuiltData } from "./functions/rebuilt_data";
+import { row1 } from "./functions/fixtures";
 
 describe("rebuiltData", () => {
-    it("should create an object with the metadata and sas_data with tableName != root", () => {
-        const input = {
-            _id: "abc",
-            _signature: "def",
-            meta_sas_sequence_id: "12",
-            meta_previous_signature: "abc",
-            meta_sas_data_type: "ghij",
-            name: "facture 12",
-            doctype: "facture",
-        };
-
-        const result = rebuiltData(input);
+    it("should create an object with the metadata and sas_data for tableName != root", () => {
+        const result = rebuiltData(row1);
 
         expect(result).toEqual({
-            previous_signature: "abc",
-            sas_data: { doctype: "facture", name: "facture 12" },
-            sas_data_type: "ghij",
-            sas_sequence_id: 12,
+            previous_signature: "valid_0",
+            sas_data: { doctype: "AAA", name: "A" },
+            sas_data_type: "AA",
+            sas_sequence_id: 0,
         });
     });
 });

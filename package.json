@@ -1,6 +1,6 @@
 {
     "dependencies": {
-        "@zip.js/zip.js": "^2.8.22",
+        "@zip.js/zip.js": "^2.8.26",
         "bootstrap": "^5.3.8",
         "happy-dom": "^20.8.9",
         "safe-stable-stringify": "^2.5.0",

@@ -38,6 +38,7 @@ describe("pairingSig", () => {
         const zip = new JSZip();
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const result = await pairingSig(zipBlob);
+
         expect(result).toHaveLength(0);
     });
 
@@ -46,6 +47,7 @@ describe("pairingSig", () => {
         zip.file("only.sig", "signature");
         const zipBlob = await zip.generateAsync({ type: "blob" });
         const result = await pairingSig(zipBlob);
+
         expect(result).toHaveLength(0);
     });
 });

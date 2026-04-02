@@ -1,33 +1,24 @@
 import { expect, describe, it } from "vitest";
 import { rebuiltRecord } from "./functions/rebuilt_record";
+import { row1 } from "./functions/fixtures";
 
 describe("rebuiltRecord", () => {
     it("should create an object with data and signature", () => {
-        const input = {
-            _id: "abc",
-            _signature: "def",
-            meta_sas_sequence_id: "12",
-            meta_previous_signature: "abc",
-            meta_sas_data_type: "ghij",
-            name: "facture 12",
-            doctype: "facture",
-        };
-
-        const result = rebuiltRecord(input);
+        const result = rebuiltRecord(row1);
 
         expect(result)
             .toBeTypeOf("object")
             .toEqual({
                 data: {
-                    previous_signature: "abc",
+                    previous_signature: "valid_0",
                     sas_data: {
-                        doctype: "facture",
-                        name: "facture 12",
+                        doctype: "AAA",
+                        name: "A",
                     },
-                    sas_data_type: "ghij",
-                    sas_sequence_id: 12,
+                    sas_data_type: "AA",
+                    sas_sequence_id: 0,
                 },
-                signature: "def",
+                signature: "valid_1",
             });
     });
 });
