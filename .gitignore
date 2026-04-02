@@ -34,3 +34,10 @@ Thumbs.db
 node_modules/.package-lock.json
 js/tests/assets/case1/facture_annulation_export.csv
 js/tests/assets/case1/sas_export_demo_7l68zu16.zip
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
