@@ -1,44 +1,25 @@
 import { expect, describe, it } from "vitest";
 import { rebuiltData } from "./functions/rebuilt_data_root";
+import { row1, rowNaN } from "./functions/fixtures";
 
 describe("rebuiltData", () => {
     it("should create an object with the metadata and sas_data with tableName = root", () => {
-        const input = {
-            _id: "aaa",
-            _signature: "def",
-            meta_sas_sequence_id: "12",
-            meta_previous_signature: "abc",
-            meta_sas_data_type: "ghij",
-            name: "facture 12",
-            doctype: "facture",
-        };
-
-        const result = rebuiltData(input);
+        const result = rebuiltData(row1);
 
         expect(result).toEqual({
-            previous_signature: "abc",
+            previous_signature: "valid_0",
             sas_data: "root",
-            sas_data_type: "ghij",
-            sas_sequence_id: 12,
+            sas_data_type: "AA",
+            sas_sequence_id: 0,
         });
     });
     it("should have s_s_id to NaN", () => {
-        const input = {
-            _id: "aaa",
-            _signature: "def",
-            meta_sas_sequence_id: "klm",
-            meta_previous_signature: "abc",
-            meta_sas_data_type: "ghij",
-            name: "facture 12",
-            doctype: "facture",
-        };
-
-        const result = rebuiltData(input);
+        const result = rebuiltData(rowNaN);
 
         expect(result).toEqual({
-            previous_signature: "abc",
+            previous_signature: "valid_3",
             sas_data: "root",
-            sas_data_type: "ghij",
+            sas_data_type: "AA",
             sas_sequence_id: NaN,
         });
     });

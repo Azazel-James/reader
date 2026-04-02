@@ -5,12 +5,12 @@ import JSZip from "jszip";
 
 describe("getLicenses", () => {
     it("should filter licenses from other files", async () => {
-        const zip = new JSZip();
+        const jzip = new JSZip();
 
-        zip.file("doc1.sqlite", "content1");
-        zip.file("doc1.sqlite.sig", "signature1");
-        zip.file("archive/licenses/doc3.json", JSON.stringify({ version: "1", signature_algorithm: "ed25519" }));
-        const zipBlob = await zip.generateAsync({ type: "blob" });
+        jzip.file("doc1.sqlite", "content1");
+        jzip.file("doc1.sqlite.sig", "signature1");
+        jzip.file("archive/licenses/doc3.json", JSON.stringify({ version: "1", signature_algorithm: "ed25519" }));
+        const zipBlob = await jzip.generateAsync({ type: "blob" });
 
         const sigPairs = await pairingSig(zipBlob);
 
@@ -22,12 +22,12 @@ describe("getLicenses", () => {
     });
 
     it("should return an empty array", async () => {
-        const zip = new JSZip();
+        const jzip = new JSZip();
 
-        zip.file("doc1.sqlite", "content1");
-        zip.file("doc1.sqlite.sig", "signature1");
-        zip.file("doc3.json", JSON.stringify({ version: "1", signature_algorithm: "ed25519" }));
-        const zipBlob = await zip.generateAsync({ type: "blob" });
+        jzip.file("doc1.sqlite", "content1");
+        jzip.file("doc1.sqlite.sig", "signature1");
+        jzip.file("doc3.json", JSON.stringify({ version: "1", signature_algorithm: "ed25519" }));
+        const zipBlob = await jzip.generateAsync({ type: "blob" });
 
         const sigPairs = await pairingSig(zipBlob);
         const result = await getLicenses(sigPairs);

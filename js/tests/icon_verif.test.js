@@ -62,7 +62,7 @@ describe("Icon verification assignment", () => {
             expect(result).toEqual("&#128274;" + "&#9989;");
         });
 
-        it("should return one lock one crossmark", () => {
+        it("should return one lock one crossmark ignoring 3rd argument", () => {
             const crypto = [true, false, false];
             const result = iconVerif(crypto[0], crypto[1], crypto[3]);
 

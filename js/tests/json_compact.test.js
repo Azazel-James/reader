@@ -6,10 +6,12 @@ describe("compactJson", () => {
         const obj1 = {
             a: 1,
             b: 2,
+            c: [{ d: 4, f: 6, e: 5 }],
         };
 
         const obj2 = {
             b: 2,
+            c: [{ e: 5, d: 4, f: 6 }],
             a: 1,
         };
 
