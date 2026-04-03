@@ -567,17 +567,27 @@ function displayDataPag(tableName, page = 1, pageSize = 500) {
 
 // 15 Displays the counts for verification status
 function countDisplay(data) {
-    const okSpan = document.createElement("span");
-    okSpan.className = "alert alert-success mb-1";
-    okSpan.innerHTML = `&#9989; ${data.found.length} signature(s) trouvée(s)`;
+    if (!data || !data.found) {
+        const koSpan = document.createElement("span");
+        koSpan.className = "alert alert-danger mb-0";
+        koSpan.innerHTML = `&#10060; Erreur 404, API indisponible`;
 
-    const koSpan = document.createElement("span");
-    koSpan.className = "alert alert-danger mb-0";
-    koSpan.innerHTML = `&#10060; ${data.missing.length} signature(s) manquante(s)`;
+        verifCard.className = "card my-3 text-center";
+        verifCard.innerHTML = "";
+        verifCard.append(koSpan);
+    } else {
+        const okSpan = document.createElement("span");
+        okSpan.className = "alert alert-success mb-1";
+        okSpan.innerHTML = `&#9989; ${data.found.length} signature(s) trouvée(s)`;
 
-    verifCard.className = "card my-3 text-center";
-    verifCard.innerHTML = "";
-    verifCard.append(okSpan, koSpan);
+        const koSpan = document.createElement("span");
+        koSpan.className = "alert alert-danger mb-0";
+        koSpan.innerHTML = `&#10060; ${data.missing.length} signature(s) manquante(s)`;
+
+        verifCard.className = "card my-3 text-center";
+        verifCard.innerHTML = "";
+        verifCard.append(okSpan, koSpan);
+    }
 }
 
 // 17 Update the displayed table with the verification status for each line
@@ -642,25 +652,28 @@ async function saslogVerify(tableName) {
 
     const payload = groupByApiUrl(table, licensesMap);
 
-    for (const [apiUrl, sigs] of Object.entries(payload)) {
-        console.log(apiUrl, sigs);
+    const totalData = {
+        found: [],
+        missing: [],
+    };
+    for (const [apiBaseUrl, sigs] of Object.entries(payload)) {
+        const apiUrl = apiBaseUrl + "/verifyMany";
 
-        await fetch(apiUrl, {
-            method: "POST",
-            body: JSON.stringify(sigs),
-        })
-            .then((response) => response.json())
-            .then((data) => {
-                countDisplay(data);
-                updateTableDisplay(tableName, data);
-            })
-            .catch((error) => {
-                console.error("Erreur lors de la vérification :", error);
-            })
-            .finally((data) => {
-                updateTableDisplay(tableName, data);
+        try {
+            const response = await fetch(apiUrl, {
+                method: "POST",
+                body: JSON.stringify(sigs),
             });
+            const data = await response.json();
+            totalData.found.push(...data.found);
+            totalData.missing.push(...data.missing);
+        } catch (error) {
+            console.error("Erreur lors de la vérification :", error);
+        }
     }
+
+    countDisplay(totalData);
+    updateTableDisplay(tableName, totalData);
 }
 
 // 12 Export a table as a csv file, table = select option
@@ -721,20 +734,6 @@ function exportFactureCSV(facture, articles, reglements) {
     }
     // Writes the full facture content as a delimited flat file
     let csvContent =
-        // "data:text/csv;charset=utf-8," +
-        // [
-        //     "facture.id",
-        //     "facture.total_ttc",
-        //     "facture_articles.libelle",
-        //     "facture_articles.quantite",
-        //     "facture_articles.prix_unitaire",
-        //     "facture_articles.total_ht",
-        //     "facture_articles.taux_tva",
-        //     "facture_reglements.montant",
-        //     "facture_reglements.mode_de_paiement",
-        //     "facture_reglements.horodatage",
-        // ].join(",") +
-        // "\n";
         "data:text/csv;charset=utf-8," +
         [
             "ID Facture",
@@ -759,7 +758,7 @@ function exportFactureCSV(facture, articles, reglements) {
             csvContent += `${f.facture_id},,,,,,, ${r.montant}, ${r.mode_de_paiement}, ${r.horodatage}\n`;
         });
     });
-    console.log(csvContent);
+
     // Turns the csv content into an encoded URI
     const encodedUri = encodeURI(csvContent);
     // Sets the href to the encoded URI and download attribute file name to a default value for the export link/btn
@@ -787,7 +786,6 @@ input.addEventListener("change", async () => {
     const sqliteFile = sigPairs.find((pair) => pair.name.endsWith(".sqlite")).doc;
 
     await loadDB(sqliteFile);
-    console.log("record db");
 
     // Gets the list of table names from the db, sends the result to the display table function (create the select options)
     const tables = getTablesList();
@@ -796,7 +794,6 @@ input.addEventListener("change", async () => {
 
 select.addEventListener("change", () => {
     tableName = select.value;
-    console.log(tableName);
 
     if (!tableName) return;
 
@@ -865,7 +862,6 @@ exportBtn.addEventListener("click", () => {
 
 switchbox.addEventListener("click", async (e) => {
     switchOn = e.target.value;
-    console.log(switchOn);
 
     const file = input.files[0];
     if (!file) return;
@@ -877,12 +873,10 @@ switchbox.addEventListener("click", async (e) => {
         const sqliteFileS = sigPairs.find((pair) => pair.name.endsWith("system.sqlite")).doc;
 
         await loadDB(sqliteFileS);
-        console.log("sys db");
     } else {
         const sqliteFile = sigPairs.find((pair) => pair.name.endsWith(".sqlite")).doc;
 
         await loadDB(sqliteFile);
-        console.log("record db");
     }
 
     const tables = getTablesList();
