@@ -10,10 +10,6 @@
     <body class="p-5">
         <header>
             <h1 class="text-center">Bonjour!</h1>
-            <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" role="switch" id="systemSwitch" />
-                <label class="form-check-label" for="systemSwitch">System File</label>
-            </div>
 
             <div class="row my-4">
                 <div class="row justify-content-center">
@@ -31,13 +27,39 @@
             <div class="row my-4">
                 <div class="row justify-content-center">
                     <div class="col-4">
-                        <label for="tabSelect" class="form-label ms-4"> 2. Sélectionnez une table à afficher </label>
+                        <label class="form-label ms-4"> 2. Sélectionnez un journal (facultatif) </label>
+                    </div>
+                </div>
+                <div class="row justify-content-center">
+                    <div class="col-4 offset-2">
+                        <div class="btn-group" role="group" aria-label="Basic radio toggle button group">
+                            <input
+                                type="radio"
+                                class="btn-check"
+                                name="journal"
+                                id="journalSociete"
+                                value="s"
+                                checked />
+                            <label class="btn btn-outline-dark" for="journalSociete">Société</label>
+
+                            <input type="radio" class="btn-check" name="journal" id="journalTech" value="t" />
+                            <label class="btn btn-outline-dark" for="journalTech">Technique</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row my-4">
+                <div class="row justify-content-center">
+                    <div class="col-4">
+                        <label for="tabSelect" class="form-label ms-4"> 3. Sélectionnez une table à afficher </label>
                     </div>
                 </div>
                 <div class="row justify-content-center">
                     <div class="col-4 offset-1">
                         <select class="form-select" id="tabSelect"></select>
                     </div>
+
                     <div class="col-1">
                         <a id="exportBtn" class="btn btn-primary">Exporter</a>
                     </div>
