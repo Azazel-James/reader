@@ -4,9 +4,10 @@
 
 1. Sélectionner l'archive fiscale au format zip à partir de l'input (étape 1).
     - Le site affiche le nombre et le nom des fichiers corrompus ainsi que la vérification du chaînage des signatures.
-2. Si l'archive contient un fichier sqlite, il est alors possible de choisir une table à afficher, à partir du selecteur (étape 2).
 
-3. Activer l'interrupteur pour passer de la base de données principale à la base de données système.
+2. (Choix facultatif) Cliquer sur les boutons "Société" et "Technique" pour changer de journal (étape 2). "Société" est le journal par défaut.    
+
+3. Si l'archive contient un fichier sqlite, il est alors possible de choisir une table à afficher, à partir du selecteur (étape 3).
 
 4. Cliquer sur le bouton "Exporter" pour télécharger la table affichée en format csv.
     - Dans le selecteur, les options précédées d'une étoile (⭐) renvoie à un export multitable qui permet de voir des factures complètes avec les articles et règlements qui leur sont associés.
