@@ -12,6 +12,7 @@ const exportBtn = document.querySelector("#exportBtn");
 const verifCard = document.querySelector("#verify");
 const verifyBtn = document.querySelector("#verifyBtn");
 const paginationUl = document.querySelector(".pagination");
+let sigPairs;
 let tableName;
 let switchOn;
 let paginationClickHandler = null;
@@ -51,6 +52,15 @@ async function licenseToKeyMapping(sigPair) {
         uuidMap[l.uuid] = l.signature_public_key;
     });
     return uuidMap;
+}
+
+async function licenseToApiUrlMapping(sigPair) {
+    const licenses = await getLicenses(sigPair);
+    const apiUrlMap = {};
+    licenses.forEach((l) => {
+        apiUrlMap[l.uuid] = l.hashlog_api_url;
+    });
+    return apiUrlMap;
 }
 
 //import an existing public key in PEM format (Ed25519). Used in verify()
@@ -96,9 +106,6 @@ function jsonCompact(obj) {
 
 // 20 Checks ONE line/entry/row of the object using web crypto, returns true or false
 async function verifyByLine(objRow, uuidMapCache) {
-    const file = input.files[0];
-    const sigPairs = await pairingSig(file);
-
     const uuidMap = uuidMapCache || (await licenseToKeyMapping(sigPairs));
 
     const line = rebuiltRecord(objRow);
@@ -321,7 +328,7 @@ async function pairingSig(zipFile) {
 
     // Create a map of signature files for O(1) lookup
     const sigMap = new Map();
-    const sigPairs = [];
+    const sigPairings = [];
 
     // First pass: identify all signature files
     entries.forEach((entry) => {
@@ -341,13 +348,13 @@ async function pairingSig(zipFile) {
                 pair.sig = await sigEntry.getData(new zip.BlobWriter());
             }
 
-            sigPairs.push(pair);
+            sigPairings.push(pair);
         }
     }
 
     await reader.close();
 
-    return sigPairs;
+    return sigPairings;
 }
 
 //database functions
@@ -385,9 +392,7 @@ function getTableData(tableName) {
 //page rendering functions
 
 // 8 Renders a card showing the verify() output of the file
-async function displayVerifArray(file) {
-    const sigPairs = await pairingSig(file);
-
+async function displayVerifArray() {
     // Find pem file efficiently
     const pemPair = sigPairs.find((pair) => pair.name.endsWith(".pem"));
     const pem = pemPair ? await pemPair.doc.text() : null;
@@ -582,19 +587,24 @@ async function updateTableDisplay(tableName, data) {
         return console.error("Empty table");
     }
 
-    const file = input.files[0];
-    const sigPairs = await pairingSig(file);
     const uuidMapCache = await licenseToKeyMapping(sigPairs);
 
     const cryptoVerif = await Promise.all(obj.map((row) => verifyByLine(row, uuidMapCache)));
 
     const rows = document.querySelectorAll(`tr[data-signature]`);
-    const found = new Set(data.found);
 
-    rows.forEach((row, i) => {
-        const apiVerif = found.has(row.dataset.signature);
-        row.querySelector(".signature-status").innerHTML = iconVerif(cryptoVerif[i], apiVerif);
-    });
+    if (data) {
+        const found = new Set(data.found);
+
+        rows.forEach((row, i) => {
+            const apiVerif = found.has(row.dataset.signature);
+            row.querySelector(".signature-status").innerHTML = iconVerif(cryptoVerif[i], apiVerif);
+        });
+    } else {
+        rows.forEach((row, i) => {
+            row.querySelector(".signature-status").innerHTML = iconVerif(cryptoVerif[i]);
+        });
+    }
 }
 
 // 21 Assign symbol to status verification (used in update table display)
@@ -602,27 +612,55 @@ function iconVerif(cryptoVerif, apiVerif) {
     return (cryptoVerif ? "&#128274;" : "&#10060;") + (apiVerif ? "&#9989;" : "&#10060;");
 }
 
+// 27 Grouping signature for sas verify
+function groupByApiUrl(rows, licenses) {
+    const result = {};
+
+    for (const row of rows) {
+        const apiUrl = licenses[row.meta_sas_license_id];
+
+        if (!apiUrl) continue;
+
+        if (!result[apiUrl]) {
+            result[apiUrl] = [];
+        }
+
+        result[apiUrl].push(row._signature);
+    }
+
+    return result;
+}
+
 // 10 Send signatures to SAS to verify them. Calls update table fn if it gets an answer.
 async function saslogVerify(tableName) {
-    const table = getTableData(tableName);
+    const table = rebuiltJson(tableName);
     if (!table) {
         return;
     }
-    const payload = table.rows.map((row) => row[1]);
 
-    // Calls the API with the data array in the body, logs the response or errors
-    fetch("https://saslog.dokos.cloud/saslog/v1/verifyMany", {
-        method: "POST",
-        body: JSON.stringify(payload),
-    })
-        .then((response) => response.json())
-        .then((data) => {
-            countDisplay(data);
-            updateTableDisplay(tableName, data);
+    const licensesMap = await licenseToApiUrlMapping(sigPairs);
+
+    const payload = groupByApiUrl(table, licensesMap);
+
+    for (const [apiUrl, sigs] of Object.entries(payload)) {
+        console.log(apiUrl, sigs);
+
+        await fetch(apiUrl, {
+            method: "POST",
+            body: JSON.stringify(sigs),
         })
-        .catch((error) => {
-            console.error("Erreur lors de la vérification :", error);
-        });
+            .then((response) => response.json())
+            .then((data) => {
+                countDisplay(data);
+                updateTableDisplay(tableName, data);
+            })
+            .catch((error) => {
+                console.error("Erreur lors de la vérification :", error);
+            })
+            .finally((data) => {
+                updateTableDisplay(tableName, data);
+            });
+    }
 }
 
 // 12 Export a table as a csv file, table = select option
@@ -739,7 +777,7 @@ input.addEventListener("change", async () => {
     if (!file) return;
 
     // Gets the array of paired documents from the input file
-    const sigPairs = await pairingSig(file);
+    sigPairs = await pairingSig(file);
 
     // Displays the general file verification results
     displayVerifArray(file);
@@ -833,7 +871,7 @@ switchbox.addEventListener("click", async (e) => {
     if (!file) return;
 
     // Gets the array of paired documents from the input file
-    const sigPairs = await pairingSig(file);
+    sigPairs = await pairingSig(file);
 
     if (switchOn === "t") {
         const sqliteFileS = sigPairs.find((pair) => pair.name.endsWith("system.sqlite")).doc;
