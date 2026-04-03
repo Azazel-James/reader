@@ -5,7 +5,7 @@ const SQL = await initSqlJs({
     locateFile: (file) => `https://sql.js.org/dist/${file}`,
 });
 let db = "";
-const switchbox = document.querySelector("#systemSwitch");
+const switchbox = document.querySelector(".btn-group");
 const input = document.querySelector("#zipFileInput");
 const select = document.querySelector("#tabSelect");
 const exportBtn = document.querySelector("#exportBtn");
@@ -105,14 +105,20 @@ async function verifyByLine(objRow, uuidMapCache) {
 
     const pem = uuidMap[line.data.sas_license_id];
     if (!pem) {
-        return;
+        return console.error("Missing license: " + line.data.sas_license_id);
     }
 
     publicKey = await importRsaKey(pem);
 
     const signature = base64ToArrayBuffer(line.signature);
+    if (!signature) {
+        return console.error("Missing signature for license: " + line.data.sas_license_id);
+    }
 
     const encodedData = utf8ToArrayBuffer(jsonCompact(line.data));
+    if (!encodedData) {
+        return console.error("Missing data for license: " + line.data.sas_license_id);
+    }
 
     // Verify the signature using the public key
     const verifyResult = await window.crypto.subtle.verify(
@@ -125,7 +131,7 @@ async function verifyByLine(objRow, uuidMapCache) {
     );
 
     if (!verifyResult) {
-        console.error("Signature mismatch", { pem, signature, encodedData, publicKey });
+        console.error("Signature mismatch");
     }
 
     return verifyResult;
@@ -573,7 +579,7 @@ function countDisplay(data) {
 async function updateTableDisplay(tableName, data) {
     const obj = rebuiltJson(tableName);
     if (obj.length === 0) {
-        return;
+        return console.error("Empty table");
     }
 
     const file = input.files[0];
@@ -581,7 +587,6 @@ async function updateTableDisplay(tableName, data) {
     const uuidMapCache = await licenseToKeyMapping(sigPairs);
 
     const cryptoVerif = await Promise.all(obj.map((row) => verifyByLine(row, uuidMapCache)));
-    console.log(cryptoVerif);
 
     const rows = document.querySelectorAll(`tr[data-signature]`);
     const found = new Set(data.found);
@@ -740,7 +745,7 @@ input.addEventListener("change", async () => {
     displayVerifArray(file);
 
     // Gets the .sqlite file from the array to load the db
-    // (assuming there's only one .sqlite file in the archive, if there are several it will take the first one it finds)
+    // (if there are several it will take the first one it finds)
     const sqliteFile = sigPairs.find((pair) => pair.name.endsWith(".sqlite")).doc;
 
     await loadDB(sqliteFile);
@@ -820,15 +825,17 @@ exportBtn.addEventListener("click", () => {
     }
 });
 
-switchbox.addEventListener("change", async () => {
-    switchOn = switchbox.checked;
+switchbox.addEventListener("click", async (e) => {
+    switchOn = e.target.value;
+    console.log(switchOn);
+
     const file = input.files[0];
     if (!file) return;
 
     // Gets the array of paired documents from the input file
     const sigPairs = await pairingSig(file);
 
-    if (switchOn === true) {
+    if (switchOn === "t") {
         const sqliteFileS = sigPairs.find((pair) => pair.name.endsWith("system.sqlite")).doc;
 
         await loadDB(sqliteFileS);
